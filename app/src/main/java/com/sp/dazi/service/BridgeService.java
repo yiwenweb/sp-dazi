@@ -17,6 +17,7 @@ import com.sp.dazi.MainActivity;
 import com.sp.dazi.R;
 import com.sp.dazi.model.NaviData;
 import com.sp.dazi.receiver.AmapNaviReceiver;
+import com.sp.dazi.receiver.BroadcastSniffer;
 
 import org.json.JSONObject;
 
@@ -49,6 +50,8 @@ public class BridgeService extends Service {
     // 高德广播接收器（在 Service 中注册，保证后台运行时也能收到）
     private AmapNaviReceiver amapReceiver;
     private boolean receiverRegistered = false;
+    // 广播嗅探器（调试用，监听所有高德相关广播）
+    private BroadcastSniffer broadcastSniffer;
 
     // 连接状态
     public enum ConnectionState {
@@ -100,6 +103,9 @@ public class BridgeService extends Service {
         startForeground(NOTIFICATION_ID, buildNotification("SP搭子运行中"));
         // 先注册高德广播接收器，再启动桥接
         registerAmapReceiver();
+        // 启动广播嗅探器（调试：监听所有高德相关广播）
+        broadcastSniffer = new BroadcastSniffer();
+        broadcastSniffer.startSniffing(this);
         startBridge();
         return START_STICKY;
     }
@@ -108,6 +114,9 @@ public class BridgeService extends Service {
     public void onDestroy() {
         stopBridge();
         unregisterAmapReceiver();
+        if (broadcastSniffer != null) {
+            broadcastSniffer.stopSniffing(this);
+        }
         super.onDestroy();
     }
 

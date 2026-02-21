@@ -23,6 +23,7 @@ import androidx.core.content.ContextCompat;
 
 import com.sp.dazi.model.NaviData;
 import com.sp.dazi.receiver.AmapNaviReceiver;
+import com.sp.dazi.receiver.BroadcastSniffer;
 import com.sp.dazi.service.BridgeService;
 
 import java.util.ArrayList;
@@ -242,9 +243,18 @@ public class MainActivity extends AppCompatActivity {
             tvGpsInfo.setText("无定位");
         }
 
-        // 调试信息
+        // 调试信息 — 显示嗅探器捕获的广播
+        int sniffCount = BroadcastSniffer.getCaptureCount();
         String dbg = AmapNaviReceiver.getDebugInfo();
-        tvDebugInfo.setText(dbg.isEmpty() ? "暂无广播数据" : dbg);
+        String sniffLogs = BroadcastSniffer.getLatestLogs(5);
+
+        if (sniffCount > 0) {
+            tvDebugInfo.setText("捕获广播: " + sniffCount + "条\n" + sniffLogs);
+        } else if (!dbg.isEmpty()) {
+            tvDebugInfo.setText(dbg);
+        } else {
+            tvDebugInfo.setText("暂无广播数据（嗅探器监听中...共" + sniffCount + "条）");
+        }
     }
 
     private String getTurnName(int type) {
