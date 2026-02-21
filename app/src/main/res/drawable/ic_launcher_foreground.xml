@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 圆形背景 -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
+    <!-- SP 文字用简单路径表示 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,42 L38,48 Q38,52 42,52 L46,52 Q50,52 50,48 L50,46 L44,46 L44,48 L38,48 M38,58 L38,64 Q38,68 42,68 L50,68 L50,62 L44,62 Q42,62 42,58 L50,58 L50,52 L42,52 Q38,52 38,58"
+        android:strokeWidth="0"/>
+</vector>

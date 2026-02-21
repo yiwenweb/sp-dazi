@@ -1,0 +1,11 @@
+buildscript {
+    ext {
+        compileSdk = 34
+        minSdk = 26
+        targetSdk = 34
+    }
+}
+
+plugins {
+    id 'com.android.application' version '8.2.0' apply false
+}

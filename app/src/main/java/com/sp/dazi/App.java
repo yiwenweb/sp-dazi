@@ -1,0 +1,31 @@
+package com.sp.dazi;
+
+import android.app.Application;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.os.Build;
+
+public class App extends Application {
+    public static final String CHANNEL_ID = "sp_dazi_bridge";
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "SP搭子桥接服务",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("导航数据桥接服务运行中");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+}
