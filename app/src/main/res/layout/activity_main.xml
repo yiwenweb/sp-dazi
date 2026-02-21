@@ -285,7 +285,26 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="使用说明：\n1. 手机和 C3 连接同一 WiFi\n2. 点击「启动服务」\n3. 打开高德地图开始导航\n4. 导航数据会自动发送到 C3"
+            android:text="调试信息（高德广播原始数据）"
+            android:textSize="14sp"
+            android:textColor="#99FFFFFF"
+            android:paddingBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tv_debug_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="暂无广播数据"
+            android:textSize="11sp"
+            android:textColor="#66FFFFFF"
+            android:background="@drawable/card_bg"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="使用说明：\n1. 安装高德车机版 9.1.0+\n2. 授予定位权限\n3. 高德车机版开始导航\n4. 点击「启动服务」发送数据到 C3"
             android:textSize="12sp"
             android:textColor="#66FFFFFF"
             android:lineSpacingExtra="4dp"

@@ -4,9 +4,7 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.os.Binder;
-import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -69,7 +67,6 @@ public class BridgeService extends Service {
     private Thread discoveryThread;
     private Timer sendTimer;
     private DatagramSocket sendSocket;
-    private AmapNaviReceiver dynamicReceiver;
 
     public class LocalBinder extends Binder {
         public BridgeService getService() {
@@ -134,23 +131,9 @@ public class BridgeService extends Service {
         if (running) return;
         running = true;
 
-        // 动态注册高德广播接收器（Android 8.0+ 静态注册收不到隐式广播）
-        dynamicReceiver = new AmapNaviReceiver();
-        IntentFilter filter = new IntentFilter();
-        filter.addAction("autonavi_standard_broadcast_send");
-        filter.addAction("com.autonavi.minimap.broadcast.CYCLIC_NAVI_INFO");
-        filter.addAction("com.autonavi.minimap.broadcast.NAVI_INFO");
-        filter.addAction("AUTONAVI_STANDARD_BROADCAST_RECV");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dynamicReceiver, filter, RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(dynamicReceiver, filter);
-        }
-        Log.i(TAG, "已动态注册高德广播接收器");
-
-        // 注册高德广播回调
+        // 高德广播由 MainActivity 动态注册，这里只设置回调
         AmapNaviReceiver.setCallback(data -> {
-            // 收到新导航数据，不需要额外处理，sendTimer 会定时读取
+            // 收到新导航数据，sendTimer 会定时读取
         });
 
         // 启动 C3 自动发现线程
@@ -173,16 +156,6 @@ public class BridgeService extends Service {
     private void stopBridge() {
         running = false;
         AmapNaviReceiver.setCallback(null);
-
-        // 注销动态广播接收器
-        if (dynamicReceiver != null) {
-            try {
-                unregisterReceiver(dynamicReceiver);
-            } catch (Exception e) {
-                Log.w(TAG, "注销广播接收器异常", e);
-            }
-            dynamicReceiver = null;
-        }
 
         if (sendTimer != null) {
             sendTimer.cancel();

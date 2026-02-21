@@ -3,6 +3,7 @@ package com.sp.dazi;
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -10,7 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.view.View;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -29,25 +30,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     private static final int PERMISSION_REQUEST_CODE = 100;
 
-    // UI 组件
-    private TextView tvConnectionState;
-    private TextView tvC3Ip;
-    private TextView tvPacketCount;
-    private TextView tvNaviInfo;
-    private TextView tvRoadName;
-    private TextView tvSpeedLimit;
-    private TextView tvSdiInfo;
-    private TextView tvTbtInfo;
-    private TextView tvGpsInfo;
+    private TextView tvConnectionState, tvC3Ip, tvPacketCount;
+    private TextView tvNaviInfo, tvRoadName, tvSpeedLimit;
+    private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
     private EditText etManualIp;
-    private Button btnConnect;
-    private Button btnStartStop;
+    private Button btnConnect, btnStartStop;
 
     private BridgeService bridgeService;
     private boolean serviceBound = false;
     private boolean serviceRunning = false;
+
+    // 高德广播接收器 — 在 Activity 中动态注册
+    private AmapNaviReceiver amapReceiver;
+    private boolean receiverRegistered = false;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable uiUpdateRunnable;
@@ -58,22 +56,16 @@ public class MainActivity extends AppCompatActivity {
             BridgeService.LocalBinder binder = (BridgeService.LocalBinder) service;
             bridgeService = binder.getService();
             serviceBound = true;
-
             bridgeService.setStateCallback(new BridgeService.StateCallback() {
                 @Override
                 public void onStateChanged(BridgeService.ConnectionState state, String c3Ip) {
                     uiHandler.post(() -> updateConnectionUI(state, c3Ip));
                 }
-
                 @Override
-                public void onDataSent(int packetCount) {
-                    // UI 由定时刷新处理
-                }
+                public void onDataSent(int packetCount) {}
             });
-
             updateConnectionUI(bridgeService.getConnectionState(), bridgeService.getC3IpAddress());
         }
-
         @Override
         public void onServiceDisconnected(ComponentName name) {
             serviceBound = false;
@@ -85,7 +77,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
         initViews();
         requestPermissions();
     }
@@ -108,6 +99,8 @@ public class MainActivity extends AppCompatActivity {
             unbindService(serviceConnection);
             serviceBound = false;
         }
+        // 注销广播接收器
+        unregisterAmapReceiver();
         super.onDestroy();
     }
 
@@ -121,12 +114,43 @@ public class MainActivity extends AppCompatActivity {
         tvSdiInfo = findViewById(R.id.tv_sdi_info);
         tvTbtInfo = findViewById(R.id.tv_tbt_info);
         tvGpsInfo = findViewById(R.id.tv_gps_info);
+        tvDebugInfo = findViewById(R.id.tv_debug_info);
         etManualIp = findViewById(R.id.et_manual_ip);
         btnConnect = findViewById(R.id.btn_connect);
         btnStartStop = findViewById(R.id.btn_start_stop);
 
         btnConnect.setOnClickListener(v -> onConnectClicked());
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
+    }
+
+    /**
+     * 注册高德广播接收器 — 完全按照参考方案，在 Activity 中动态注册
+     */
+    private void registerAmapReceiver() {
+        if (receiverRegistered) return;
+        amapReceiver = new AmapNaviReceiver();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(AmapNaviReceiver.AMAP_ACTION);
+        filter.setPriority(100);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(amapReceiver, filter, RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(amapReceiver, filter);
+        }
+        receiverRegistered = true;
+        Log.i(TAG, "高德广播接收器已注册 action=" + AmapNaviReceiver.AMAP_ACTION);
+        Toast.makeText(this, "高德广播接收器已注册", Toast.LENGTH_SHORT).show();
+    }
+
+    private void unregisterAmapReceiver() {
+        if (receiverRegistered && amapReceiver != null) {
+            try {
+                unregisterReceiver(amapReceiver);
+            } catch (Exception e) {
+                Log.w(TAG, "注销广播异常", e);
+            }
+            receiverRegistered = false;
+        }
     }
 
     private void onConnectClicked() {
@@ -153,19 +177,16 @@ public class MainActivity extends AppCompatActivity {
 
     private void startBridgeService() {
         Intent intent = new Intent(this, BridgeService.class);
-        // 如果有手动输入的 IP，传给服务
         String ip = etManualIp.getText().toString().trim();
         if (!ip.isEmpty()) {
             intent.putExtra("c3_ip", ip);
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent);
         } else {
             startService(intent);
         }
         bindService(intent, serviceConnection, BIND_AUTO_CREATE);
-
         serviceRunning = true;
         btnStartStop.setText("停止服务");
         Toast.makeText(this, "桥接服务已启动", Toast.LENGTH_SHORT).show();
@@ -177,16 +198,13 @@ public class MainActivity extends AppCompatActivity {
             serviceBound = false;
         }
         stopService(new Intent(this, BridgeService.class));
-
         serviceRunning = false;
         bridgeService = null;
         btnStartStop.setText("启动服务");
         tvConnectionState.setText("未启动");
         tvConnectionState.setTextColor(0xFF999999);
-        Toast.makeText(this, "桥接服务已停止", Toast.LENGTH_SHORT).show();
     }
 
-    /** 定时刷新 UI（1秒一次） */
     private void startUIUpdate() {
         uiUpdateRunnable = new Runnable() {
             @Override
@@ -229,85 +247,73 @@ public class MainActivity extends AppCompatActivity {
 
         NaviData data = AmapNaviReceiver.getCurrentData();
         long lastUpdate = AmapNaviReceiver.getLastUpdateTime();
+        int recvCount = AmapNaviReceiver.getReceiveCount();
         boolean fresh = (System.currentTimeMillis() - lastUpdate) < 5000;
 
         if (lastUpdate == 0) {
-            tvNaviInfo.setText("等待高德导航数据... (已收到广播: " + AmapNaviReceiver.getReceiveCount() + ")");
+            tvNaviInfo.setText("等待高德导航数据... (广播计数: " + recvCount + ")");
         } else if (!fresh) {
-            tvNaviInfo.setText("导航数据已过期 (" + ((System.currentTimeMillis() - lastUpdate) / 1000) + "秒前)");
+            tvNaviInfo.setText("数据已过期 (" + ((System.currentTimeMillis() - lastUpdate) / 1000) + "秒前, 共" + recvCount + "条)");
         } else {
-            tvNaviInfo.setText("导航数据正常");
+            tvNaviInfo.setText("数据正常 (共" + recvCount + "条)");
         }
 
-        // 道路信息
-        String roadName = data.szPosRoadName;
-        tvRoadName.setText(roadName.isEmpty() ? "--" : roadName);
-
-        // 限速
+        tvRoadName.setText(data.szPosRoadName.isEmpty() ? "--" : data.szPosRoadName);
         tvSpeedLimit.setText(data.nRoadLimitSpeed > 0 ? data.nRoadLimitSpeed + " km/h" : "--");
 
-        // 测速摄像头
         if (data.nSdiType >= 0 && data.nSdiSpeedLimit > 0) {
-            tvSdiInfo.setText("类型:" + data.nSdiType
-                + " 限速:" + data.nSdiSpeedLimit + "km/h"
-                + " 距离:" + (int) data.nSdiDist + "m");
+            tvSdiInfo.setText("类型:" + data.nSdiType + " 限速:" + data.nSdiSpeedLimit + "km/h 距离:" + (int) data.nSdiDist + "m");
         } else {
             tvSdiInfo.setText("无");
         }
 
-        // 转弯
         if (data.nTBTDist > 0 && data.nTBTTurnType > 0) {
-            String turnName = getTurnTypeName(data.nTBTTurnType);
-            tvTbtInfo.setText(turnName + " " + (int) data.nTBTDist + "m");
+            tvTbtInfo.setText(getTurnName(data.nTBTTurnType) + " " + (int) data.nTBTDist + "m");
         } else {
             tvTbtInfo.setText("无");
         }
 
-        // GPS
         if (data.vpPosPointLat != 0 || data.vpPosPointLon != 0) {
             tvGpsInfo.setText(String.format("%.6f, %.6f", data.vpPosPointLat, data.vpPosPointLon));
         } else {
             tvGpsInfo.setText("无定位");
         }
+
+        // 调试信息
+        String dbg = AmapNaviReceiver.getDebugInfo();
+        tvDebugInfo.setText(dbg.isEmpty() ? "暂无广播数据" : dbg);
     }
 
-    private String getTurnTypeName(int type) {
+    private String getTurnName(int type) {
         switch (type) {
-            case 1: return "左转";
-            case 2: return "右转";
-            case 3: return "左前方";
-            case 4: return "右前方";
-            case 5: return "左后方";
-            case 6: return "右后方";
-            case 7: return "掉头";
-            case 8: return "环岛";
+            case 1: return "直行";
+            case 2: return "左转";
+            case 3: return "右转";
+            case 4: return "掉头";
+            case 5: return "进匝道";
             default: return "转弯(" + type + ")";
         }
     }
 
-    // ---- 权限处理 ----
-
+    // ---- 权限 ----
     private void requestPermissions() {
         List<String> needed = new ArrayList<>();
-        String[] perms = {
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-        };
-        for (String p : perms) {
-            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                needed.add(p);
-            }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
-        // Android 13+ 通知权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 needed.add(Manifest.permission.POST_NOTIFICATIONS);
             }
         }
-
         if (!needed.isEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        } else {
+            // 权限已有，直接注册广播
+            registerAmapReceiver();
         }
     }
 
@@ -315,15 +321,14 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
+            // 不管权限是否全部授予，都注册广播
+            registerAmapReceiver();
             boolean allGranted = true;
             for (int r : grantResults) {
-                if (r != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
+                if (r != PackageManager.PERMISSION_GRANTED) allGranted = false;
             }
             if (!allGranted) {
-                Toast.makeText(this, "部分权限未授予，可能影响功能", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "部分权限未授予，可能影响GPS数据", Toast.LENGTH_LONG).show();
             }
         }
     }
