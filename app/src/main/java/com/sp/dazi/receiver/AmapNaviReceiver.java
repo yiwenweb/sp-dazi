@@ -9,18 +9,23 @@ import android.util.Log;
 import com.sp.dazi.model.NaviData;
 
 /**
- * 高德地图导航广播接收器
+ * 高德地图（车机版/手机版）导航广播接收器
  *
- * 高德地图在导航过程中会发送以下广播：
- * - com.autonavi.minimap.broadcast.NAVI_INFO (单次导航信息)
- * - com.autonavi.minimap.broadcast.CYCLIC_NAVI_INFO (周期性导航信息)
- * - AUTONAVI_STANDARD_BROADCAST_RECV (标准广播)
+ * 高德在导航过程中通过以下 Action 发送广播：
+ *   autonavi_standard_broadcast_send
  *
- * 广播 extras 直接包含所有导航字段（不使用 KEY_TYPE 分类），
- * 字段名与 CP搭子 实测一致。
+ * 数据以 key-value 键值对存储在 Bundle 中。
+ * 字段名基于高德车机版 9.x 实测协议。
  */
 public class AmapNaviReceiver extends BroadcastReceiver {
     private static final String TAG = "AmapNaviReceiver";
+
+    // 高德广播 Action（实测）
+    public static final String ACTION_AMAP_SEND = "autonavi_standard_broadcast_send";
+    // 兼容其他可能的 Action
+    public static final String ACTION_NAVI_INFO = "com.autonavi.minimap.broadcast.NAVI_INFO";
+    public static final String ACTION_CYCLIC = "com.autonavi.minimap.broadcast.CYCLIC_NAVI_INFO";
+    public static final String ACTION_RECV = "AUTONAVI_STANDARD_BROADCAST_RECV";
 
     public interface NaviDataCallback {
         void onNaviDataUpdated(NaviData data);
@@ -29,6 +34,7 @@ public class AmapNaviReceiver extends BroadcastReceiver {
     private static NaviDataCallback sCallback;
     private static final NaviData sData = new NaviData();
     private static long sLastUpdateTime = 0;
+    private static int sReceiveCount = 0;
 
     public static void setCallback(NaviDataCallback callback) {
         sCallback = callback;
@@ -42,6 +48,10 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         return sLastUpdateTime;
     }
 
+    public static int getReceiveCount() {
+        return sReceiveCount;
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
@@ -49,10 +59,22 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         Bundle extras = intent.getExtras();
         if (extras == null) return;
 
-        Log.d(TAG, "收到广播: " + action + " keys=" + extras.keySet());
+        sReceiveCount++;
+        Log.d(TAG, "收到广播 #" + sReceiveCount + ": " + action + " keys=" + extras.keySet().size());
 
         try {
-            parseFields(extras);
+            // 打印所有 key 用于调试（前 30 个）
+            int count = 0;
+            for (String key : extras.keySet()) {
+                Object val = extras.get(key);
+                Log.d(TAG, "  [" + key + "] = " + val + " (" + (val != null ? val.getClass().getSimpleName() : "null") + ")");
+                if (++count >= 30) {
+                    Log.d(TAG, "  ... 还有 " + (extras.keySet().size() - 30) + " 个字段");
+                    break;
+                }
+            }
+
+            parseAmapFields(extras);
             sLastUpdateTime = System.currentTimeMillis();
             if (sCallback != null) {
                 sCallback.onNaviDataUpdated(sData);
@@ -63,86 +85,130 @@ public class AmapNaviReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 解析高德广播 extras — 字段名基于 CP搭子 实测数据
-     *
-     * 高德广播把所有导航数据平铺在 extras 里，不分 KEY_TYPE。
-     * 每次广播可能只包含部分字段，所以用 containsKey 判断后再更新。
+     * 解析高德广播字段
+     * 同时兼容两套字段名：
+     *   - 高德车机版原始字段名 (current_speed_limit, tbt_type, gps_lon 等)
+     *   - CP搭子风格字段名 (nRoadLimitSpeed, nTBTTurnType 等)
      */
-    private void parseFields(Bundle extras) {
+    private void parseAmapFields(Bundle extras) {
+        // ---- 导航状态 ----
+        // navi_state: 0=未导航, 1=导航中, 2=已到达
+
         // ---- 道路限速 ----
-        if (extras.containsKey("nRoadLimitSpeed")) {
-            sData.nRoadLimitSpeed = getInt(extras, "nRoadLimitSpeed", sData.nRoadLimitSpeed);
+        sData.nRoadLimitSpeed = firstInt(extras, 0,
+            "current_speed_limit", "nRoadLimitSpeed", "LimitSpeed");
+
+        // ---- 道路名称 ----
+        String roadName = firstString(extras,
+            "current_road_name", "szPosRoadName", "CurRoadName", "RoadName");
+        if (roadName != null && !roadName.isEmpty()) {
+            sData.szPosRoadName = roadName;
         }
 
-        // ---- 道路信息 ----
-        if (extras.containsKey("szPosRoadName")) {
-            String name = extras.getString("szPosRoadName", "");
-            if (!name.isEmpty()) sData.szPosRoadName = name;
-        }
-        if (extras.containsKey("roadcate")) {
-            sData.roadcate = getInt(extras, "roadcate", sData.roadcate);
-        }
+        // ---- 道路类型 ----
+        sData.roadcate = firstInt(extras, sData.roadcate,
+            "road_type", "roadcate", "RoadType");
 
         // ---- GPS ----
-        if (extras.containsKey("latitude")) {
-            sData.vpPosPointLat = getDouble(extras, "latitude", sData.vpPosPointLat);
-        }
-        if (extras.containsKey("longitude")) {
-            sData.vpPosPointLon = getDouble(extras, "longitude", sData.vpPosPointLon);
-        }
-        if (extras.containsKey("heading")) {
-            sData.nPosAngle = getFloat(extras, "heading", sData.nPosAngle);
-        }
+        double lat = firstDouble(extras, 0,
+            "gps_lat", "latitude", "vpPosPointLat", "Latitude");
+        double lon = firstDouble(extras, 0,
+            "gps_lon", "longitude", "vpPosPointLon", "Longitude");
+        if (lat != 0) sData.vpPosPointLat = lat;
+        if (lon != 0) sData.vpPosPointLon = lon;
+
+        float heading = firstFloat(extras, 0,
+            "gps_heading", "heading", "nPosAngle", "Direction");
+        if (heading != 0) sData.nPosAngle = heading;
 
         // ---- TBT 转弯 ----
-        if (extras.containsKey("nTBTDist")) {
-            sData.nTBTDist = getDouble(extras, "nTBTDist", sData.nTBTDist);
-        }
-        if (extras.containsKey("nTBTTurnType")) {
-            sData.nTBTTurnType = getInt(extras, "nTBTTurnType", sData.nTBTTurnType);
-        }
+        int tbtType = firstInt(extras, 0,
+            "tbt_type", "nTBTTurnType", "Icon");
+        if (tbtType != 0) sData.nTBTTurnType = tbtType;
 
-        // ---- SDI 测速摄像头 ----
-        if (extras.containsKey("nSdiType")) {
-            sData.nSdiType = getInt(extras, "nSdiType", sData.nSdiType);
-        }
-        if (extras.containsKey("nSdiSpeedLimit")) {
-            sData.nSdiSpeedLimit = getInt(extras, "nSdiSpeedLimit", sData.nSdiSpeedLimit);
-        }
-        if (extras.containsKey("nSdiDist")) {
-            sData.nSdiDist = getDouble(extras, "nSdiDist", sData.nSdiDist);
-        }
+        double tbtDist = firstDouble(extras, 0,
+            "tbt_distance", "nTBTDist", "SegRemainDist");
+        if (tbtDist != 0) sData.nTBTDist = tbtDist;
+
+        // ---- 测速摄像头 ----
+        int camType = firstInt(extras, -1,
+            "camera_type", "nSdiType", "SdiType");
+        if (camType != -1) sData.nSdiType = camType;
+
+        int camDist = firstInt(extras, 0,
+            "camera_distance", "nSdiDist");
+        if (camDist != 0) sData.nSdiDist = camDist;
+
+        int camSpeed = firstInt(extras, 0,
+            "camera_speed_limit", "nSdiSpeedLimit", "SdiLimitSpeed");
+        if (camSpeed != 0) sData.nSdiSpeedLimit = camSpeed;
 
         // ---- 区间测速 ----
-        if (extras.containsKey("nSdiBlockType")) {
-            sData.nSdiBlockType = getInt(extras, "nSdiBlockType", sData.nSdiBlockType);
-        }
-        if (extras.containsKey("nSdiBlockSpeed")) {
-            sData.nSdiBlockSpeed = getInt(extras, "nSdiBlockSpeed", sData.nSdiBlockSpeed);
-        }
-        if (extras.containsKey("nSdiBlockDist")) {
-            sData.nSdiBlockDist = getDouble(extras, "nSdiBlockDist", sData.nSdiBlockDist);
-        }
+        sData.nSdiBlockType = firstInt(extras, sData.nSdiBlockType,
+            "nSdiBlockType", "SdiBlockType");
+        sData.nSdiBlockSpeed = firstInt(extras, sData.nSdiBlockSpeed,
+            "nSdiBlockSpeed", "SdiBlockSpeed");
+        double blockDist = firstDouble(extras, 0,
+            "nSdiBlockDist", "SdiBlockDist");
+        if (blockDist != 0) sData.nSdiBlockDist = blockDist;
+
+        // ---- 交通灯 ----
+        sData.nTrafficLight = firstInt(extras, sData.nTrafficLight,
+            "traffic_light_state", "nTrafficLight", "TrafficLight");
+        sData.nTrafficLightDist = firstInt(extras, sData.nTrafficLightDist,
+            "traffic_light_distance", "nTrafficLightDist", "TrafficLightDist");
+        sData.nTrafficLightSec = firstInt(extras, sData.nTrafficLightSec,
+            "traffic_light_countdown", "nTrafficLightSec", "TrafficLightSec");
 
         // ---- 目的地 ----
-        if (extras.containsKey("nGoPosDist")) {
-            sData.nGoPosDist = getInt(extras, "nGoPosDist", sData.nGoPosDist);
-        }
-        if (extras.containsKey("nGoPosTime")) {
-            sData.nGoPosTime = getInt(extras, "nGoPosTime", sData.nGoPosTime);
-        }
-
-        // ---- 调试：打印前 20 个 key ----
-        int count = 0;
-        for (String key : extras.keySet()) {
-            Object val = extras.get(key);
-            Log.d(TAG, "  " + key + " = " + val);
-            if (++count >= 20) break;
-        }
+        int destDist = firstInt(extras, 0,
+            "total_distance", "nGoPosDist", "RouteRemainDist");
+        if (destDist != 0) sData.nGoPosDist = destDist;
+        int destTime = firstInt(extras, 0,
+            "total_time", "nGoPosTime", "RouteRemainTime");
+        if (destTime != 0) sData.nGoPosTime = destTime;
     }
 
-    // ---- 类型安全的 extras 读取工具方法 ----
-    // 高德广播的值类型不固定，可能是 int/long/float/double/String，需要兼容
+    // ---- 工具方法：尝试多个 key，返回第一个存在的值 ----
+
+    private static int firstInt(Bundle b, int def, String... keys) {
+        for (String key : keys) {
+            if (b.containsKey(key)) {
+                return getInt(b, key, def);
+            }
+        }
+        return def;
+    }
+
+    private static double firstDouble(Bundle b, double def, String... keys) {
+        for (String key : keys) {
+            if (b.containsKey(key)) {
+                return getDouble(b, key, def);
+            }
+        }
+        return def;
+    }
+
+    private static float firstFloat(Bundle b, float def, String... keys) {
+        for (String key : keys) {
+            if (b.containsKey(key)) {
+                return getFloat(b, key, def);
+            }
+        }
+        return def;
+    }
+
+    private static String firstString(Bundle b, String... keys) {
+        for (String key : keys) {
+            if (b.containsKey(key)) {
+                Object val = b.get(key);
+                if (val != null) return val.toString();
+            }
+        }
+        return null;
+    }
+
+    // ---- 类型安全读取（高德广播值类型不固定） ----
 
     private static int getInt(Bundle b, String key, int def) {
         Object val = b.get(key);

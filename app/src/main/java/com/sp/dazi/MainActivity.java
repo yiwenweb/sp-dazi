@@ -232,7 +232,7 @@ public class MainActivity extends AppCompatActivity {
         boolean fresh = (System.currentTimeMillis() - lastUpdate) < 5000;
 
         if (lastUpdate == 0) {
-            tvNaviInfo.setText("等待高德导航数据...");
+            tvNaviInfo.setText("等待高德导航数据... (已收到广播: " + AmapNaviReceiver.getReceiveCount() + ")");
         } else if (!fresh) {
             tvNaviInfo.setText("导航数据已过期 (" + ((System.currentTimeMillis() - lastUpdate) / 1000) + "秒前)");
         } else {

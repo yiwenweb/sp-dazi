@@ -137,6 +137,7 @@ public class BridgeService extends Service {
         // 动态注册高德广播接收器（Android 8.0+ 静态注册收不到隐式广播）
         dynamicReceiver = new AmapNaviReceiver();
         IntentFilter filter = new IntentFilter();
+        filter.addAction("autonavi_standard_broadcast_send");
         filter.addAction("com.autonavi.minimap.broadcast.CYCLIC_NAVI_INFO");
         filter.addAction("com.autonavi.minimap.broadcast.NAVI_INFO");
         filter.addAction("AUTONAVI_STANDARD_BROADCAST_RECV");

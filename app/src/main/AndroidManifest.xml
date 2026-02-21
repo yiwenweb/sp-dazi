@@ -41,6 +41,7 @@
             android:name=".receiver.AmapNaviReceiver"
             android:exported="true">
             <intent-filter>
+                <action android:name="autonavi_standard_broadcast_send" />
                 <action android:name="com.autonavi.minimap.broadcast.CYCLIC_NAVI_INFO" />
                 <action android:name="com.autonavi.minimap.broadcast.NAVI_INFO" />
                 <action android:name="AUTONAVI_STANDARD_BROADCAST_RECV" />
