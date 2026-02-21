@@ -3,7 +3,6 @@ package com.sp.dazi;
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -42,10 +41,6 @@ public class MainActivity extends AppCompatActivity {
     private BridgeService bridgeService;
     private boolean serviceBound = false;
     private boolean serviceRunning = false;
-
-    // 高德广播接收器 — 在 Activity 中动态注册
-    private AmapNaviReceiver amapReceiver;
-    private boolean receiverRegistered = false;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable uiUpdateRunnable;
@@ -99,8 +94,6 @@ public class MainActivity extends AppCompatActivity {
             unbindService(serviceConnection);
             serviceBound = false;
         }
-        // 注销广播接收器
-        unregisterAmapReceiver();
         super.onDestroy();
     }
 
@@ -121,36 +114,6 @@ public class MainActivity extends AppCompatActivity {
 
         btnConnect.setOnClickListener(v -> onConnectClicked());
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
-    }
-
-    /**
-     * 注册高德广播接收器 — 完全按照参考方案，在 Activity 中动态注册
-     */
-    private void registerAmapReceiver() {
-        if (receiverRegistered) return;
-        amapReceiver = new AmapNaviReceiver();
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(AmapNaviReceiver.AMAP_ACTION);
-        filter.setPriority(100);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(amapReceiver, filter, RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(amapReceiver, filter);
-        }
-        receiverRegistered = true;
-        Log.i(TAG, "高德广播接收器已注册 action=" + AmapNaviReceiver.AMAP_ACTION);
-        Toast.makeText(this, "高德广播接收器已注册", Toast.LENGTH_SHORT).show();
-    }
-
-    private void unregisterAmapReceiver() {
-        if (receiverRegistered && amapReceiver != null) {
-            try {
-                unregisterReceiver(amapReceiver);
-            } catch (Exception e) {
-                Log.w(TAG, "注销广播异常", e);
-            }
-            receiverRegistered = false;
-        }
     }
 
     private void onConnectClicked() {
@@ -311,9 +274,6 @@ public class MainActivity extends AppCompatActivity {
         }
         if (!needed.isEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        } else {
-            // 权限已有，直接注册广播
-            registerAmapReceiver();
         }
     }
 
@@ -321,8 +281,6 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            // 不管权限是否全部授予，都注册广播
-            registerAmapReceiver();
             boolean allGranted = true;
             for (int r : grantResults) {
                 if (r != PackageManager.PERMISSION_GRANTED) allGranted = false;

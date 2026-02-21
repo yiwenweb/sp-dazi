@@ -4,7 +4,9 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -43,6 +45,10 @@ public class BridgeService extends Service {
     private static final int DATA_PORT = 7706;
     // 数据发送间隔 ms
     private static final long SEND_INTERVAL = 200;
+
+    // 高德广播接收器（在 Service 中注册，保证后台运行时也能收到）
+    private AmapNaviReceiver amapReceiver;
+    private boolean receiverRegistered = false;
 
     // 连接状态
     public enum ConnectionState {
@@ -92,6 +98,8 @@ public class BridgeService extends Service {
         }
 
         startForeground(NOTIFICATION_ID, buildNotification("SP搭子运行中"));
+        // 先注册高德广播接收器，再启动桥接
+        registerAmapReceiver();
         startBridge();
         return START_STICKY;
     }
@@ -99,7 +107,42 @@ public class BridgeService extends Service {
     @Override
     public void onDestroy() {
         stopBridge();
+        unregisterAmapReceiver();
         super.onDestroy();
+    }
+
+    /** 在 Service 中注册高德广播接收器（核心修复：不受 Activity 生命周期影响） */
+    private void registerAmapReceiver() {
+        if (receiverRegistered) return;
+        try {
+            amapReceiver = new AmapNaviReceiver();
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(AmapNaviReceiver.AMAP_ACTION);
+            filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(amapReceiver, filter, RECEIVER_EXPORTED);
+            } else {
+                registerReceiver(amapReceiver, filter);
+            }
+            receiverRegistered = true;
+            Log.i(TAG, "高德广播接收器注册成功（Service内） action=" + AmapNaviReceiver.AMAP_ACTION);
+        } catch (Exception e) {
+            Log.e(TAG, "广播注册失败", e);
+        }
+    }
+
+    /** 注销高德广播接收器 */
+    private void unregisterAmapReceiver() {
+        if (receiverRegistered && amapReceiver != null) {
+            try {
+                unregisterReceiver(amapReceiver);
+                receiverRegistered = false;
+                Log.i(TAG, "高德广播接收器已注销");
+            } catch (Exception e) {
+                Log.w(TAG, "注销广播异常", e);
+            }
+        }
     }
 
     public void setStateCallback(StateCallback callback) {
@@ -131,9 +174,10 @@ public class BridgeService extends Service {
         if (running) return;
         running = true;
 
-        // 高德广播由 MainActivity 动态注册，这里只设置回调
+        // 高德广播回调 — 收到数据时打印日志
         AmapNaviReceiver.setCallback(data -> {
-            // 收到新导航数据，sendTimer 会定时读取
+            Log.d(TAG, "收到高德导航数据: road=" + data.szPosRoadName
+                + " limit=" + data.nRoadLimitSpeed + "km/h");
         });
 
         // 启动 C3 自动发现线程

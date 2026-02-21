@@ -36,18 +36,25 @@ public class AmapNaviReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent == null) return;
+        if (intent == null) {
+            Log.w(TAG, "onReceive: intent为空");
+            return;
+        }
 
         sReceiveCount++;
+        String action = intent.getAction();
+        String pkg = intent.getPackage();
         Bundle bundle = intent.getExtras();
 
-        Log.d(TAG, "收到高德广播 #" + sReceiveCount + " action=" + intent.getAction());
+        Log.d(TAG, "收到广播 #" + sReceiveCount + " action=" + action + " package=" + pkg);
 
         if (bundle == null) {
             Log.d(TAG, "Bundle为空");
-            sDebugInfo = "#" + sReceiveCount + " bundle=null";
+            sDebugInfo = "#" + sReceiveCount + " action=" + action + " bundle=null";
             return;
         }
+
+        Log.d(TAG, "Bundle size=" + bundle.size());
 
         // 打印所有字段（调试）
         StringBuilder dbg = new StringBuilder();
