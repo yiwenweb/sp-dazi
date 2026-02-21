@@ -8,6 +8,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -127,8 +130,9 @@ public class BroadcastSniffer {
             for (String key : bundle.keySet()) {
                 Object val = bundle.get(key);
                 String valStr = val != null ? val.toString() : "null";
-                if (valStr.length() > 50) valStr = valStr.substring(0, 50) + "...";
-                info.append("    ").append(key).append(" = ").append(valStr).append("\n");
+                String type = val != null ? val.getClass().getSimpleName() : "null";
+                // 导出时不截断，完整记录
+                info.append("    ").append(key).append(" [").append(type).append("] = ").append(valStr).append("\n");
             }
         } else {
             info.append("  Bundle: null\n");
@@ -145,6 +149,45 @@ public class BroadcastSniffer {
 
         if (sCallback != null) {
             sCallback.onBroadcastCaptured(logEntry);
+        }
+    }
+
+    /**
+     * 导出所有捕获的广播数据到文件
+     * @return 导出文件的路径，失败返回 null
+     */
+    public static String exportLogs(Context context) {
+        try {
+            File dir = new File(context.getExternalFilesDir(null), "sniffer_logs");
+            if (!dir.exists()) dir.mkdirs();
+
+            String fileName = "broadcast_" +
+                new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
+            File file = new File(dir, fileName);
+
+            FileWriter writer = new FileWriter(file);
+            writer.write("=== SP搭子 广播嗅探器导出 ===\n");
+            writer.write("导出时间: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()) + "\n");
+            writer.write("总捕获数: " + sCaptureCount + "\n");
+            writer.write("监听Action列表:\n");
+            for (String action : AMAP_ACTIONS) {
+                writer.write("  - " + action + "\n");
+            }
+            writer.write("\n=== 捕获记录 ===\n\n");
+
+            for (String log : sCapturedLogs) {
+                writer.write(log);
+                writer.write("\n---\n\n");
+            }
+
+            writer.flush();
+            writer.close();
+
+            Log.i(TAG, "日志已导出: " + file.getAbsolutePath());
+            return file.getAbsolutePath();
+        } catch (IOException e) {
+            Log.e(TAG, "导出失败", e);
+            return null;
         }
     }
 }

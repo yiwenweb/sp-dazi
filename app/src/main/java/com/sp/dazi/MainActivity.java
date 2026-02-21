@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -20,12 +21,14 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import com.sp.dazi.model.NaviData;
 import com.sp.dazi.receiver.AmapNaviReceiver;
 import com.sp.dazi.receiver.BroadcastSniffer;
 import com.sp.dazi.service.BridgeService;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvNaviInfo, tvRoadName, tvSpeedLimit;
     private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
     private EditText etManualIp;
-    private Button btnConnect, btnStartStop;
+    private Button btnConnect, btnStartStop, btnExportLog;
 
     private BridgeService bridgeService;
     private boolean serviceBound = false;
@@ -112,9 +115,11 @@ public class MainActivity extends AppCompatActivity {
         etManualIp = findViewById(R.id.et_manual_ip);
         btnConnect = findViewById(R.id.btn_connect);
         btnStartStop = findViewById(R.id.btn_start_stop);
+        btnExportLog = findViewById(R.id.btn_export_log);
 
         btnConnect.setOnClickListener(v -> onConnectClicked());
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
+        btnExportLog.setOnClickListener(v -> onExportLogClicked());
     }
 
     private void onConnectClicked() {
@@ -136,6 +141,28 @@ public class MainActivity extends AppCompatActivity {
             stopBridgeService();
         } else {
             startBridgeService();
+        }
+    }
+
+    private void onExportLogClicked() {
+        String path = BroadcastSniffer.exportLogs(this);
+        if (path != null) {
+            Toast.makeText(this, "已导出到: " + path, Toast.LENGTH_LONG).show();
+            // 尝试分享文件
+            try {
+                File file = new File(path);
+                Uri uri = FileProvider.getUriForFile(this, "com.sp.dazi.fileprovider", file);
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("text/plain");
+                shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(shareIntent, "分享广播日志"));
+            } catch (Exception e) {
+                Log.w(TAG, "分享失败", e);
+                Toast.makeText(this, "文件路径: " + path, Toast.LENGTH_LONG).show();
+            }
+        } else {
+            Toast.makeText(this, "导出失败，可能没有捕获到数据", Toast.LENGTH_SHORT).show();
         }
     }
 

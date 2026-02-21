@@ -299,6 +299,17 @@
             android:textColor="#66FFFFFF"
             android:background="@drawable/card_bg"
             android:padding="12dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 导出广播日志按钮 -->
+        <Button
+            android:id="@+id/btn_export_log"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="导出广播日志"
+            android:textSize="14sp"
+            android:textColor="#FFFFFFFF"
+            android:backgroundTint="#FFFF9800"
             android:layout_marginBottom="12dp" />
 
         <TextView
