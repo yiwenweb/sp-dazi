@@ -11,12 +11,20 @@ import com.sp.dazi.model.NaviData;
 /**
  * 高德车机版 (AmapAuto) 导航广播接收器
  *
- * Action: autonavi_standard_broadcast_send
- * 高德车机版 9.x+ 在导航中会以 1Hz 推送广播，接近转向点时 10Hz。
+ * Action: AUTONAVI_STANDARD_BROADCAST_SEND (全大写!)
+ *
+ * 高德车机版通过 KEY_TYPE 区分不同类型的广播：
+ *   10001 = 导航主数据（道路、限速、摄像头、转弯、GPS等，66个字段）
+ *   60073 = 红绿灯数据（状态、倒计时）
+ *   12205 = 地理位置
+ *   13011 = 路况TMC数据
+ *   10019 = 导航状态
  */
 public class AmapNaviReceiver extends BroadcastReceiver {
     private static final String TAG = "AmapNaviReceiver";
-    public static final String AMAP_ACTION = "autonavi_standard_broadcast_send";
+
+    // 注意：全大写！之前用小写是错的
+    public static final String AMAP_ACTION = "AUTONAVI_STANDARD_BROADCAST_SEND";
 
     public interface NaviDataCallback {
         void onNaviDataUpdated(NaviData data);
@@ -42,61 +50,91 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         }
 
         sReceiveCount++;
-        String action = intent.getAction();
-        String pkg = intent.getPackage();
         Bundle bundle = intent.getExtras();
 
-        Log.d(TAG, "收到广播 #" + sReceiveCount + " action=" + action + " package=" + pkg);
-
         if (bundle == null) {
-            Log.d(TAG, "Bundle为空");
-            sDebugInfo = "#" + sReceiveCount + " action=" + action + " bundle=null";
+            Log.d(TAG, "收到广播 #" + sReceiveCount + " bundle=null");
             return;
         }
 
-        Log.d(TAG, "Bundle size=" + bundle.size());
+        int keyType = bundle.getInt("KEY_TYPE", -1);
 
-        // 打印所有字段（调试）
-        StringBuilder dbg = new StringBuilder();
-        for (String key : bundle.keySet()) {
-            Object val = bundle.get(key);
-            Log.d(TAG, "  " + key + " = " + val);
-            if (dbg.length() < 200) {
-                dbg.append(key).append("=").append(val).append("\n");
-            }
+        switch (keyType) {
+            case 10001:
+                parseNaviData(bundle);
+                break;
+            case 60073:
+                parseTrafficLight(bundle);
+                break;
+            default:
+                // 12205(地理位置), 13011(路况), 10019(状态) 等暂不处理
+                break;
         }
-        sDebugInfo = dbg.toString();
-
-        // 解析字段
-        sData.nRoadLimitSpeed = bundle.getInt("current_speed_limit", sData.nRoadLimitSpeed);
-        String road = bundle.getString("current_road_name", null);
-        if (road != null) sData.szPosRoadName = road;
-        sData.roadcate = bundle.getInt("road_type", sData.roadcate);
-
-        double lat = bundle.getDouble("gps_lat", 0);
-        double lon = bundle.getDouble("gps_lon", 0);
-        if (lat != 0) sData.vpPosPointLat = lat;
-        if (lon != 0) sData.vpPosPointLon = lon;
-        sData.nPosAngle = bundle.getFloat("gps_heading", sData.nPosAngle);
-
-        sData.nTBTTurnType = bundle.getInt("tbt_type", sData.nTBTTurnType);
-        sData.nTBTDist = bundle.getInt("tbt_distance", (int) sData.nTBTDist);
-
-        sData.nSdiType = bundle.getInt("camera_type", sData.nSdiType);
-        sData.nSdiDist = bundle.getInt("camera_distance", (int) sData.nSdiDist);
-        sData.nSdiSpeedLimit = bundle.getInt("camera_speed_limit", sData.nSdiSpeedLimit);
-
-        sData.nTrafficLight = bundle.getInt("traffic_light_state", sData.nTrafficLight);
-        sData.nTrafficLightSec = bundle.getInt("traffic_light_countdown", sData.nTrafficLightSec);
-
-        int totalDist = bundle.getInt("total_distance", 0);
-        if (totalDist != 0) sData.nGoPosDist = totalDist;
-        int totalTime = bundle.getInt("total_time", 0);
-        if (totalTime != 0) sData.nGoPosTime = totalTime;
 
         sLastUpdateTime = System.currentTimeMillis();
         if (sCallback != null) {
             sCallback.onNaviDataUpdated(sData);
         }
+    }
+
+    /**
+     * 解析 KEY_TYPE=10001 导航主数据（66个字段）
+     */
+    private void parseNaviData(Bundle b) {
+        // 道路信息
+        String roadName = b.getString("CUR_ROAD_NAME", null);
+        if (roadName != null) sData.szPosRoadName = roadName;
+        sData.roadcate = b.getInt("ROAD_TYPE", sData.roadcate);
+
+        // 限速 (-1 表示无限速)
+        int limitSpeed = b.getInt("LIMITED_SPEED", -1);
+        sData.nRoadLimitSpeed = limitSpeed > 0 ? limitSpeed : 0;
+
+        // GPS (高德车机版可能返回 0.0，表示无定位)
+        double lat = b.getDouble("CAR_LATITUDE", 0);
+        double lon = b.getDouble("CAR_LONGITUDE", 0);
+        if (lat != 0) sData.vpPosPointLat = lat;
+        if (lon != 0) sData.vpPosPointLon = lon;
+        sData.nPosAngle = b.getInt("CAR_DIRECTION", (int) sData.nPosAngle);
+
+        // 转弯 (ICON: 转弯类型, SEG_REMAIN_DIS: 到转弯点距离)
+        sData.nTBTTurnType = b.getInt("ICON", sData.nTBTTurnType);
+        sData.nTBTDist = b.getInt("SEG_REMAIN_DIS", (int) sData.nTBTDist);
+
+        // 测速摄像头
+        sData.nSdiType = b.getInt("CAMERA_TYPE", sData.nSdiType);
+        sData.nSdiSpeedLimit = b.getInt("CAMERA_SPEED", sData.nSdiSpeedLimit);
+        sData.nSdiDist = b.getInt("CAMERA_DIST", (int) sData.nSdiDist);
+
+        // 目的地
+        sData.nGoPosDist = b.getInt("ROUTE_REMAIN_DIS", sData.nGoPosDist);
+        sData.nGoPosTime = b.getInt("ROUTE_REMAIN_TIME", sData.nGoPosTime);
+
+        // 下一条路名
+        String nextRoad = b.getString("NEXT_ROAD_NAME", null);
+
+        // 调试信息
+        sDebugInfo = "道路:" + sData.szPosRoadName
+            + " 限速:" + (limitSpeed > 0 ? limitSpeed + "km/h" : "无")
+            + " 摄像头:" + sData.nSdiType + "/" + sData.nSdiSpeedLimit + "km/h/" + (int)sData.nSdiDist + "m"
+            + "\n转弯:" + sData.nTBTTurnType + " " + (int)sData.nTBTDist + "m"
+            + " 下条路:" + (nextRoad != null ? nextRoad : "--")
+            + "\n剩余:" + sData.nGoPosDist + "m " + sData.nGoPosTime + "s"
+            + " GPS:" + String.format("%.4f,%.4f", sData.vpPosPointLat, sData.vpPosPointLon);
+
+        Log.d(TAG, "导航数据 #" + sReceiveCount + " road=" + sData.szPosRoadName
+            + " limit=" + limitSpeed + " camera=" + sData.nSdiType + "/" + sData.nSdiDist + "m");
+    }
+
+    /**
+     * 解析 KEY_TYPE=60073 红绿灯数据
+     */
+    private void parseTrafficLight(Bundle b) {
+        // trafficLightStatus: 1=红灯, 2=绿灯, 3=黄灯
+        sData.nTrafficLight = b.getInt("trafficLightStatus", 0);
+        sData.nTrafficLightSec = b.getInt("redLightCountDownSeconds", 0);
+
+        Log.d(TAG, "红绿灯 #" + sReceiveCount + " status=" + sData.nTrafficLight
+            + " countdown=" + sData.nTrafficLightSec + "s");
     }
 }

@@ -59,6 +59,8 @@ public class NaviData {
             j.put("nTBTTurnType", nTBTTurnType);
             j.put("nGoPosDist", nGoPosDist);
             j.put("nGoPosTime", nGoPosTime);
+            j.put("nTrafficLight", nTrafficLight);
+            j.put("nTrafficLightSec", nTrafficLightSec);
         } catch (JSONException e) {
             e.printStackTrace();
         }
