@@ -80,10 +80,10 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         sData.nPosAngle = bundle.getFloat("gps_heading", sData.nPosAngle);
 
         sData.nTBTTurnType = bundle.getInt("tbt_type", sData.nTBTTurnType);
-        sData.nTBTDist = bundle.getInt("tbt_distance", sData.nTBTDist);
+        sData.nTBTDist = bundle.getInt("tbt_distance", (int) sData.nTBTDist);
 
         sData.nSdiType = bundle.getInt("camera_type", sData.nSdiType);
-        sData.nSdiDist = bundle.getInt("camera_distance", sData.nSdiDist);
+        sData.nSdiDist = bundle.getInt("camera_distance", (int) sData.nSdiDist);
         sData.nSdiSpeedLimit = bundle.getInt("camera_speed_limit", sData.nSdiSpeedLimit);
 
         sData.nTrafficLight = bundle.getInt("traffic_light_state", sData.nTrafficLight);
