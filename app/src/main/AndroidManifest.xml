@@ -19,6 +19,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="SP搭子"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.SPDazi">
 
         <activity

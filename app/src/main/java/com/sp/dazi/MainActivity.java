@@ -12,8 +12,13 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
+import android.view.View;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -36,15 +41,21 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final int PERMISSION_REQUEST_CODE = 100;
 
+    // Views
+    private WebView wvVideo;
+    private TextView tvVideoHint;
     private TextView tvConnectionState, tvC3Ip, tvPacketCount;
     private TextView tvNaviInfo, tvRoadName, tvSpeedLimit;
     private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
     private EditText etManualIp;
-    private Button btnConnect, btnStartStop, btnExportLog;
+    private Button btnConnect, btnStartStop, btnDebug, btnExportLog;
+    private LinearLayout debugPanel;
 
     private BridgeService bridgeService;
     private boolean serviceBound = false;
     private boolean serviceRunning = false;
+    private boolean debugVisible = false;
+    private boolean videoLoaded = false;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable uiUpdateRunnable;
@@ -58,12 +69,21 @@ public class MainActivity extends AppCompatActivity {
             bridgeService.setStateCallback(new BridgeService.StateCallback() {
                 @Override
                 public void onStateChanged(BridgeService.ConnectionState state, String c3Ip) {
-                    uiHandler.post(() -> updateConnectionUI(state, c3Ip));
+                    uiHandler.post(() -> {
+                        updateConnectionUI(state, c3Ip);
+                        // C3 连接成功后自动加载视频
+                        if (state == BridgeService.ConnectionState.CONNECTED && c3Ip != null) {
+                            loadVideo(c3Ip);
+                        }
+                    });
                 }
                 @Override
                 public void onDataSent(int packetCount) {}
             });
             updateConnectionUI(bridgeService.getConnectionState(), bridgeService.getC3IpAddress());
+            if (bridgeService.getConnectionState() == BridgeService.ConnectionState.CONNECTED) {
+                loadVideo(bridgeService.getC3IpAddress());
+            }
         }
         @Override
         public void onServiceDisconnected(ComponentName name) {
@@ -98,10 +118,15 @@ public class MainActivity extends AppCompatActivity {
             unbindService(serviceConnection);
             serviceBound = false;
         }
+        if (wvVideo != null) {
+            wvVideo.destroy();
+        }
         super.onDestroy();
     }
 
     private void initViews() {
+        wvVideo = findViewById(R.id.wv_video);
+        tvVideoHint = findViewById(R.id.tv_video_hint);
         tvConnectionState = findViewById(R.id.tv_connection_state);
         tvC3Ip = findViewById(R.id.tv_c3_ip);
         tvPacketCount = findViewById(R.id.tv_packet_count);
@@ -115,11 +140,36 @@ public class MainActivity extends AppCompatActivity {
         etManualIp = findViewById(R.id.et_manual_ip);
         btnConnect = findViewById(R.id.btn_connect);
         btnStartStop = findViewById(R.id.btn_start_stop);
+        btnDebug = findViewById(R.id.btn_debug);
         btnExportLog = findViewById(R.id.btn_export_log);
+        debugPanel = findViewById(R.id.debug_panel);
+
+        // WebView 设置
+        WebSettings ws = wvVideo.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        ws.setDomStorageEnabled(true);
+        wvVideo.setWebViewClient(new WebViewClient());
 
         btnConnect.setOnClickListener(v -> onConnectClicked());
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
+        btnDebug.setOnClickListener(v -> toggleDebug());
         btnExportLog.setOnClickListener(v -> onExportLogClicked());
+    }
+
+    private void loadVideo(String c3Ip) {
+        if (c3Ip == null || videoLoaded) return;
+        String url = "http://" + c3Ip + ":8099";
+        wvVideo.loadUrl(url);
+        tvVideoHint.setVisibility(View.GONE);
+        videoLoaded = true;
+        Log.i(TAG, "加载视频: " + url);
+    }
+
+    private void toggleDebug() {
+        debugVisible = !debugVisible;
+        debugPanel.setVisibility(debugVisible ? View.VISIBLE : View.GONE);
+        btnDebug.setText(debugVisible ? "隐藏调试" : "调试");
     }
 
     private void onConnectClicked() {
@@ -130,6 +180,7 @@ public class MainActivity extends AppCompatActivity {
         }
         if (serviceBound && bridgeService != null) {
             bridgeService.setC3Ip(ip);
+            loadVideo(ip);
             Toast.makeText(this, "已设置 C3 IP: " + ip, Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(this, "服务未启动，请先启动服务", Toast.LENGTH_SHORT).show();
@@ -147,8 +198,7 @@ public class MainActivity extends AppCompatActivity {
     private void onExportLogClicked() {
         String path = BroadcastSniffer.exportLogs(this);
         if (path != null) {
-            Toast.makeText(this, "已导出到: " + path, Toast.LENGTH_LONG).show();
-            // 尝试分享文件
+            Toast.makeText(this, "已导出: " + path, Toast.LENGTH_LONG).show();
             try {
                 File file = new File(path);
                 Uri uri = FileProvider.getUriForFile(this, "com.sp.dazi.fileprovider", file);
@@ -159,10 +209,9 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(Intent.createChooser(shareIntent, "分享广播日志"));
             } catch (Exception e) {
                 Log.w(TAG, "分享失败", e);
-                Toast.makeText(this, "文件路径: " + path, Toast.LENGTH_LONG).show();
             }
         } else {
-            Toast.makeText(this, "导出失败，可能没有捕获到数据", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "导出失败", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -180,7 +229,8 @@ public class MainActivity extends AppCompatActivity {
         bindService(intent, serviceConnection, BIND_AUTO_CREATE);
         serviceRunning = true;
         btnStartStop.setText("停止服务");
-        Toast.makeText(this, "桥接服务已启动", Toast.LENGTH_SHORT).show();
+        btnStartStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFF44336));
+        Toast.makeText(this, "服务已启动", Toast.LENGTH_SHORT).show();
     }
 
     private void stopBridgeService() {
@@ -191,9 +241,13 @@ public class MainActivity extends AppCompatActivity {
         stopService(new Intent(this, BridgeService.class));
         serviceRunning = false;
         bridgeService = null;
+        videoLoaded = false;
         btnStartStop.setText("启动服务");
+        btnStartStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF4CAF50));
         tvConnectionState.setText("未启动");
         tvConnectionState.setTextColor(0xFF999999);
+        tvVideoHint.setVisibility(View.VISIBLE);
+        wvVideo.loadUrl("about:blank");
     }
 
     private void startUIUpdate() {
@@ -216,7 +270,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateConnectionUI(BridgeService.ConnectionState state, String c3Ip) {
         switch (state) {
             case SEARCHING:
-                tvConnectionState.setText("🔍 搜索设备中...");
+                tvConnectionState.setText("🔍 搜索中...");
                 tvConnectionState.setTextColor(0xFFFF9800);
                 break;
             case CONNECTED:
@@ -224,11 +278,11 @@ public class MainActivity extends AppCompatActivity {
                 tvConnectionState.setTextColor(0xFF4CAF50);
                 break;
             case DISCONNECTED:
-                tvConnectionState.setText("❌ 未连接");
+                tvConnectionState.setText("❌ 断开");
                 tvConnectionState.setTextColor(0xFFF44336);
                 break;
         }
-        tvC3Ip.setText(c3Ip != null ? c3Ip : "--");
+        tvC3Ip.setText(c3Ip != null ? c3Ip : "");
     }
 
     private void updateNaviDataUI() {
@@ -242,18 +296,19 @@ public class MainActivity extends AppCompatActivity {
         boolean fresh = (System.currentTimeMillis() - lastUpdate) < 5000;
 
         if (lastUpdate == 0) {
-            tvNaviInfo.setText("等待高德导航数据... (广播计数: " + recvCount + ")");
+            tvNaviInfo.setText("等待高德导航数据... (" + recvCount + ")");
         } else if (!fresh) {
-            tvNaviInfo.setText("数据已过期 (" + ((System.currentTimeMillis() - lastUpdate) / 1000) + "秒前, 共" + recvCount + "条)");
+            tvNaviInfo.setText("数据过期 (" + ((System.currentTimeMillis() - lastUpdate) / 1000) + "s前)");
         } else {
-            tvNaviInfo.setText("数据正常 (共" + recvCount + "条)");
+            tvNaviInfo.setText("数据正常 (" + recvCount + "条)");
+            tvNaviInfo.setTextColor(0xFF4CAF50);
         }
 
         tvRoadName.setText(data.szPosRoadName.isEmpty() ? "--" : data.szPosRoadName);
         tvSpeedLimit.setText(data.nRoadLimitSpeed > 0 ? data.nRoadLimitSpeed + " km/h" : "--");
 
         if (data.nSdiType >= 0 && data.nSdiSpeedLimit > 0) {
-            tvSdiInfo.setText("类型:" + data.nSdiType + " 限速:" + data.nSdiSpeedLimit + "km/h 距离:" + (int) data.nSdiDist + "m");
+            tvSdiInfo.setText("限" + data.nSdiSpeedLimit + "km/h " + (int) data.nSdiDist + "m");
         } else {
             tvSdiInfo.setText("无");
         }
@@ -265,22 +320,23 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (data.vpPosPointLat != 0 || data.vpPosPointLon != 0) {
-            tvGpsInfo.setText(String.format("%.6f, %.6f", data.vpPosPointLat, data.vpPosPointLon));
+            tvGpsInfo.setText(String.format("%.5f, %.5f", data.vpPosPointLat, data.vpPosPointLon));
         } else {
             tvGpsInfo.setText("无定位");
         }
 
-        // 调试信息 — 显示嗅探器捕获的广播
-        int sniffCount = BroadcastSniffer.getCaptureCount();
-        String dbg = AmapNaviReceiver.getDebugInfo();
-        String sniffLogs = BroadcastSniffer.getLatestLogs(5);
-
-        if (sniffCount > 0) {
-            tvDebugInfo.setText("捕获广播: " + sniffCount + "条\n" + sniffLogs);
-        } else if (!dbg.isEmpty()) {
-            tvDebugInfo.setText(dbg);
-        } else {
-            tvDebugInfo.setText("暂无广播数据（嗅探器监听中...共" + sniffCount + "条）");
+        // 调试信息只在面板可见时更新
+        if (debugVisible) {
+            int sniffCount = BroadcastSniffer.getCaptureCount();
+            String dbg = AmapNaviReceiver.getDebugInfo();
+            String sniffLogs = BroadcastSniffer.getLatestLogs(3);
+            if (sniffCount > 0) {
+                tvDebugInfo.setText("嗅探:" + sniffCount + "条\n" + sniffLogs);
+            } else if (!dbg.isEmpty()) {
+                tvDebugInfo.setText(dbg);
+            } else {
+                tvDebugInfo.setText("暂无数据");
+            }
         }
     }
 
@@ -323,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
                 if (r != PackageManager.PERMISSION_GRANTED) allGranted = false;
             }
             if (!allGranted) {
-                Toast.makeText(this, "部分权限未授予，可能影响GPS数据", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "部分权限未授予", Toast.LENGTH_LONG).show();
             }
         }
     }
