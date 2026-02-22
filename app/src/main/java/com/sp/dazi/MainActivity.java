@@ -22,12 +22,15 @@ import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.JavascriptInterface;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.appcompat.app.AlertDialog;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -66,13 +69,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvNaviInfo, tvRoadName, tvSpeedLimit;
     private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
     private EditText etManualIp;
-    private Button btnConnect, btnStartStop, btnDebug, btnExportLog;
+    private Button btnConnect, btnStartStop, btnDebug, btnExportLog, btnSettings;
     private LinearLayout debugPanel, hudOverlay;
     private ScrollView controlPanel;
-    // 自定义限速
-    private EditText etSpeed120, etSpeed100, etSpeed80, etSpeed60;
-    private Button btnSaveSpeedMap;
-    private TextView tvSpeedMapStatus;
+    private TextView tvLiveStatus, tvFps;
 
     // HUD views
     private TextView tvHudSpeed, tvHudCruise, tvHudGear, tvHudGap;
@@ -244,13 +244,10 @@ public class MainActivity extends AppCompatActivity {
         tvHudSdiSpeed = findViewById(R.id.tv_hud_sdi_speed);
         tvHudSdiDist = findViewById(R.id.tv_hud_sdi_dist);
         controlPanel = findViewById(R.id.control_panel);
-        // 自定义限速
-        etSpeed120 = findViewById(R.id.et_speed_120);
-        etSpeed100 = findViewById(R.id.et_speed_100);
-        etSpeed80 = findViewById(R.id.et_speed_80);
-        etSpeed60 = findViewById(R.id.et_speed_60);
-        btnSaveSpeedMap = findViewById(R.id.btn_save_speed_map);
-        tvSpeedMapStatus = findViewById(R.id.tv_speed_map_status);
+        // 设置按钮 + LIVE/FPS
+        btnSettings = findViewById(R.id.btn_settings);
+        tvLiveStatus = findViewById(R.id.tv_live_status);
+        tvFps = findViewById(R.id.tv_fps);
         // Feature 3
         hudSapaBar = findViewById(R.id.hud_sapa_bar);
         tvHudSapaIcon = findViewById(R.id.tv_hud_sapa_icon);
@@ -282,18 +279,43 @@ public class MainActivity extends AppCompatActivity {
         ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setDomStorageEnabled(true);
         wvVideo.setWebViewClient(new WebViewClient());
+        // JavaScript 接口：接收 iframe 的 fps postMessage
+        wvVideo.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void onFps(int fps) {
+                uiHandler.post(() -> {
+                    if (tvFps != null) tvFps.setText(fps + " fps");
+                    if (tvLiveStatus != null) {
+                        tvLiveStatus.setText(fps > 0 ? "● LIVE" : "");
+                        tvLiveStatus.setTextColor(fps > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
+                    }
+                });
+            }
+        }, "Android");
 
         btnConnect.setOnClickListener(v -> onConnectClicked());
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
+        btnSettings.setOnClickListener(v -> showSettingsDialog());
         btnDebug.setOnClickListener(v -> toggleDebug());
         btnExportLog.setOnClickListener(v -> onExportLogClicked());
-        btnSaveSpeedMap.setOnClickListener(v -> saveSpeedMappings());
         loadSpeedMappings();
     }
 
     private void loadVideo(String c3Ip) {
         if (c3Ip == null || videoLoaded) return;
-        String url = "http://" + c3Ip + ":8099";
+        String url = "http://" + c3Ip + ":8099?cam=road";
+        wvVideo.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                // 注入 JS：监听 iframe postMessage 中的 fps，转发给 Android
+                view.evaluateJavascript(
+                    "window.addEventListener('message', function(e) {" +
+                    "  if (e.data && typeof e.data.fps === 'number') {" +
+                    "    Android.onFps(e.data.fps);" +
+                    "  }" +
+                    "});", null);
+            }
+        });
         wvVideo.loadUrl(url);
         tvVideoHint.setVisibility(View.GONE);
         videoLoaded = true;
@@ -585,6 +607,9 @@ public class MainActivity extends AppCompatActivity {
         if (hudTripBar != null) hudTripBar.setVisibility(View.GONE);
         if (hudLaneBar != null) hudLaneBar.setVisibility(View.GONE);
         wvVideo.loadUrl("about:blank");
+        // 重置 LIVE/fps 显示
+        if (tvLiveStatus != null) tvLiveStatus.setText("");
+        if (tvFps != null) tvFps.setText("");
         // Feature 8: 保存行程数据
         if (tripStartTime > 0 && tripDistance > 100) {
             saveTripData();
@@ -918,52 +943,198 @@ public class MainActivity extends AppCompatActivity {
     private static final int[] SPEED_LEVELS = {120, 100, 80, 60};
 
     private void saveSpeedMappings() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-        AmapNaviReceiver.clearSpeedMappings();
-
-        int count = 0;
-        EditText[] fields = {etSpeed120, etSpeed100, etSpeed80, etSpeed60};
-        for (int i = 0; i < SPEED_LEVELS.length; i++) {
-            String text = fields[i].getText().toString().trim();
-            int original = SPEED_LEVELS[i];
-            if (!text.isEmpty()) {
-                int target = Integer.parseInt(text);
-                if (target > 0 && target != original) {
-                    AmapNaviReceiver.setSpeedMapping(original, target);
-                    editor.putInt("speed_map_" + original, target);
-                    count++;
-                } else {
-                    editor.remove("speed_map_" + original);
-                }
-            } else {
-                editor.remove("speed_map_" + original);
-            }
-        }
-        editor.apply();
-        String msg = count > 0 ? count + "条映射已保存" : "无映射";
-        tvSpeedMapStatus.setText(msg);
-        tvSpeedMapStatus.setTextColor(count > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
-        Toast.makeText(this, "限速设置已保存", Toast.LENGTH_SHORT).show();
+        // 从 SharedPreferences 已保存的值加载（由 dialog 保存）
     }
 
     private void loadSpeedMappings() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        EditText[] fields = {etSpeed120, etSpeed100, etSpeed80, etSpeed60};
-        int count = 0;
-        for (int i = 0; i < SPEED_LEVELS.length; i++) {
-            int original = SPEED_LEVELS[i];
+        for (int original : SPEED_LEVELS) {
             int target = prefs.getInt("speed_map_" + original, 0);
             if (target > 0 && target != original) {
-                fields[i].setText(String.valueOf(target));
                 AmapNaviReceiver.setSpeedMapping(original, target);
-                count++;
             }
         }
-        if (count > 0) {
-            tvSpeedMapStatus.setText(count + "条映射");
-            tvSpeedMapStatus.setTextColor(0xFF00E5A0);
+    }
+
+    /** 设置弹窗：自定义限速 + 摄像头切换 */
+    @SuppressWarnings("deprecation")
+    private void showSettingsDialog() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+
+        // 根布局
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(8));
+        root.setBackgroundColor(0xFF1A1A2E);
+
+        // ── 摄像头切换 ──
+        TextView camTitle = new TextView(this);
+        camTitle.setText("📷 摄像头切换");
+        camTitle.setTextSize(14);
+        camTitle.setTextColor(0xFFFFFFFF);
+        camTitle.setPadding(0, 0, 0, dp(8));
+        root.addView(camTitle);
+
+        LinearLayout camRow = new LinearLayout(this);
+        camRow.setOrientation(LinearLayout.HORIZONTAL);
+        String[] camLabels = {"前方", "广角", "驾驶员"};
+        String[] camValues = {"road", "wideRoad", "driver"};
+        for (int i = 0; i < 3; i++) {
+            Button btn = new Button(this);
+            btn.setText(camLabels[i]);
+            btn.setTextSize(13);
+            btn.setTextColor(0xFFFFFFFF);
+            btn.setBackgroundColor(0xFF2A2A4A);
+            btn.setStateListAnimator(null);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1);
+            lp.setMargins(i == 0 ? 0 : dp(4), 0, i == 2 ? 0 : dp(4), 0);
+            btn.setLayoutParams(lp);
+            final String camVal = camValues[i];
+            btn.setOnClickListener(v -> {
+                // 通过 postMessage 切换摄像头
+                if (wvVideo != null) {
+                    wvVideo.evaluateJavascript(
+                        "document.querySelector('img') || true; " +
+                        "window.postMessage({cam:'" + camVal + "'}, '*');",
+                        null);
+                    // 直接修改页面内的 cam 变量
+                    wvVideo.evaluateJavascript("cam='" + camVal + "';", null);
+                }
+                Toast.makeText(this, "切换到: " + ((Button) v).getText(), Toast.LENGTH_SHORT).show();
+            });
+            camRow.addView(btn);
         }
+        root.addView(camRow);
+
+        // 分隔
+        View divider = new View(this);
+        divider.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        divLp.setMargins(0, dp(14), 0, dp(14));
+        divider.setLayoutParams(divLp);
+        root.addView(divider);
+
+        // ── 自定义限速 ──
+        TextView speedTitle = new TextView(this);
+        speedTitle.setText("🚀 自定义限速映射");
+        speedTitle.setTextSize(14);
+        speedTitle.setTextColor(0xFFFFFFFF);
+        speedTitle.setPadding(0, 0, 0, dp(8));
+        root.addView(speedTitle);
+
+        TextView speedHint = new TextView(this);
+        speedHint.setText("留空 = 不修改，填入目标速度即可");
+        speedHint.setTextSize(11);
+        speedHint.setTextColor(0x99FFFFFF);
+        speedHint.setPadding(0, 0, 0, dp(8));
+        root.addView(speedHint);
+
+        EditText[] speedFields = new EditText[SPEED_LEVELS.length];
+        for (int i = 0; i < SPEED_LEVELS.length; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(4), 0, dp(4));
+
+            TextView label = new TextView(this);
+            label.setText("限速 " + SPEED_LEVELS[i] + " →");
+            label.setTextSize(13);
+            label.setTextColor(0xCCFFFFFF);
+            label.setLayoutParams(new LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT));
+            row.addView(label);
+
+            EditText et = new EditText(this);
+            et.setHint("" + SPEED_LEVELS[i]);
+            et.setTextSize(14);
+            et.setTextColor(0xFFFFFFFF);
+            et.setHintTextColor(0x55FFFFFF);
+            et.setBackgroundColor(0xFF2A2A4A);
+            et.setPadding(dp(10), dp(6), dp(10), dp(6));
+            et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(dp(80), LinearLayout.LayoutParams.WRAP_CONTENT);
+            etLp.setMargins(dp(8), 0, 0, 0);
+            et.setLayoutParams(etLp);
+
+            // 加载已保存的值
+            int saved = prefs.getInt("speed_map_" + SPEED_LEVELS[i], 0);
+            if (saved > 0 && saved != SPEED_LEVELS[i]) {
+                et.setText(String.valueOf(saved));
+            }
+            speedFields[i] = et;
+            row.addView(et);
+
+            TextView unit = new TextView(this);
+            unit.setText(" km/h");
+            unit.setTextSize(12);
+            unit.setTextColor(0x99FFFFFF);
+            row.addView(unit);
+
+            root.addView(row);
+        }
+
+        // 当前映射状态
+        TextView statusTv = new TextView(this);
+        int mapCount = 0;
+        StringBuilder mapInfo = new StringBuilder();
+        for (int orig : SPEED_LEVELS) {
+            int t = prefs.getInt("speed_map_" + orig, 0);
+            if (t > 0 && t != orig) {
+                mapCount++;
+                if (mapInfo.length() > 0) mapInfo.append("  ");
+                mapInfo.append(orig).append("→").append(t);
+            }
+        }
+        statusTv.setText(mapCount > 0 ? "当前: " + mapInfo : "无映射");
+        statusTv.setTextSize(11);
+        statusTv.setTextColor(mapCount > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
+        statusTv.setPadding(0, dp(8), 0, 0);
+        root.addView(statusTv);
+
+        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog)
+            .setView(root)
+            .setPositiveButton("保存", (d, w) -> {
+                // 保存限速映射
+                SharedPreferences.Editor editor = prefs.edit();
+                AmapNaviReceiver.clearSpeedMappings();
+                int count = 0;
+                for (int i = 0; i < SPEED_LEVELS.length; i++) {
+                    String text = speedFields[i].getText().toString().trim();
+                    int original = SPEED_LEVELS[i];
+                    if (!text.isEmpty()) {
+                        try {
+                            int target = Integer.parseInt(text);
+                            if (target > 0 && target != original) {
+                                AmapNaviReceiver.setSpeedMapping(original, target);
+                                editor.putInt("speed_map_" + original, target);
+                                count++;
+                            } else {
+                                editor.remove("speed_map_" + original);
+                            }
+                        } catch (NumberFormatException e) {
+                            editor.remove("speed_map_" + original);
+                        }
+                    } else {
+                        editor.remove("speed_map_" + original);
+                    }
+                }
+                editor.apply();
+                Toast.makeText(this,
+                    count > 0 ? count + "条限速映射已保存" : "已清除所有映射",
+                    Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("取消", null)
+            .create();
+
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        dialog.show();
+        // 按钮颜色
+        try {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFF00E5A0);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0x99FFFFFF);
+        } catch (Exception ignored) {}
     }
 
     // ---- 辅助方法 ----
