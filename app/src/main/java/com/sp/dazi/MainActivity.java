@@ -61,6 +61,8 @@ public class MainActivity extends AppCompatActivity {
 
     // HUD views
     private TextView tvHudSpeed, tvHudCruise, tvHudGear, tvHudGap;
+    private TextView tvHudTlight, tvHudTlightSec;
+    private LinearLayout hudTlight;
 
     // WebSocket for carstate
     private OkHttpClient wsClient;
@@ -167,6 +169,9 @@ public class MainActivity extends AppCompatActivity {
         tvHudCruise = findViewById(R.id.tv_hud_cruise);
         tvHudGear = findViewById(R.id.tv_hud_gear);
         tvHudGap = findViewById(R.id.tv_hud_gap);
+        tvHudTlight = findViewById(R.id.tv_hud_tlight);
+        tvHudTlightSec = findViewById(R.id.tv_hud_tlight_sec);
+        hudTlight = findViewById(R.id.hud_tlight);
 
         // WebView 设置
         WebSettings ws = wvVideo.getSettings();
@@ -216,6 +221,8 @@ public class MainActivity extends AppCompatActivity {
                     double vSet = j.optDouble("vSetKph", 0);
                     String gear = j.optString("gear", "P");
                     int tfGap = j.optInt("tfGap", 2);
+                    String tlight = j.optString("tlight", "off");
+                    int tlightCountdown = j.optInt("tlightCountdown", 0);
 
                     int speedKph = (int) Math.round(vEgo * 3.6);
                     int cruiseKph = (int) Math.round(vSet);
@@ -226,12 +233,43 @@ public class MainActivity extends AppCompatActivity {
                         gapDots.append(i < tfGap ? "●" : "○");
                     }
 
+                    // 红绿灯颜色
+                    final int tlightColor;
+                    final boolean tlightVisible;
+                    final String tlightSecText;
+                    switch (tlight) {
+                        case "red":
+                            tlightColor = 0xFFFF4444;
+                            tlightVisible = true;
+                            tlightSecText = tlightCountdown > 0 ? String.valueOf(tlightCountdown) : "";
+                            break;
+                        case "green":
+                            tlightColor = 0xFF44FF44;
+                            tlightVisible = true;
+                            tlightSecText = tlightCountdown > 0 ? String.valueOf(tlightCountdown) : "";
+                            break;
+                        case "yellow":
+                            tlightColor = 0xFFFFDD00;
+                            tlightVisible = true;
+                            tlightSecText = tlightCountdown > 0 ? String.valueOf(tlightCountdown) : "";
+                            break;
+                        default:
+                            tlightColor = 0xFF666666;
+                            tlightVisible = false;
+                            tlightSecText = "";
+                            break;
+                    }
+
                     uiHandler.post(() -> {
                         tvHudSpeed.setText(String.valueOf(speedKph));
                         tvHudCruise.setText(cruiseKph > 0 ? String.valueOf(cruiseKph) : "--");
                         tvHudCruise.setTextColor(cruiseKph > 0 ? 0xFF4CAF50 : 0xFF999999);
                         tvHudGear.setText(gear);
                         tvHudGap.setText(gapDots.toString());
+                        // 红绿灯
+                        hudTlight.setVisibility(tlightVisible ? View.VISIBLE : View.GONE);
+                        tvHudTlight.setTextColor(tlightColor);
+                        tvHudTlightSec.setText(tlightSecText);
                     });
                 } catch (Exception e) {
                     Log.w(TAG, "解析 carstate 失败", e);

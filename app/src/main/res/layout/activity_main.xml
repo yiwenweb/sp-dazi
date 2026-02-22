@@ -143,6 +143,32 @@
                 android:textSize="16sp"
                 android:textColor="#FF2196F3"
                 android:paddingEnd="8dp" />
+
+            <!-- 红绿灯 -->
+            <LinearLayout
+                android:id="@+id/hud_tlight"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:paddingStart="8dp"
+                android:visibility="gone">
+                <TextView
+                    android:id="@+id/tv_hud_tlight"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="●"
+                    android:textSize="28sp"
+                    android:textColor="#FF666666" />
+                <TextView
+                    android:id="@+id/tv_hud_tlight_sec"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFFFF"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
     </FrameLayout>
 
