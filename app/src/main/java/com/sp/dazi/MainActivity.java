@@ -90,6 +90,9 @@ public class MainActivity extends AppCompatActivity {
     // Feature 8: 行程统计
     private LinearLayout hudTripBar;
     private TextView tvHudTrip;
+    // 变道提醒
+    private LinearLayout hudLaneBar;
+    private TextView tvHudLaneIcon, tvHudLaneText, tvHudLaneDetail;
 
     // Feature 7: 超速提醒
     private Vibrator vibrator;
@@ -248,6 +251,11 @@ public class MainActivity extends AppCompatActivity {
         // Feature 8
         hudTripBar = findViewById(R.id.hud_trip_bar);
         tvHudTrip = findViewById(R.id.tv_hud_trip);
+        // 变道提醒
+        hudLaneBar = findViewById(R.id.hud_lane_bar);
+        tvHudLaneIcon = findViewById(R.id.tv_hud_lane_icon);
+        tvHudLaneText = findViewById(R.id.tv_hud_lane_text);
+        tvHudLaneDetail = findViewById(R.id.tv_hud_lane_detail);
         // Feature 7
         vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
 
@@ -556,6 +564,7 @@ public class MainActivity extends AppCompatActivity {
         if (hudTmcBar != null) hudTmcBar.setVisibility(View.GONE);
         if (hudNextTurnBar != null) hudNextTurnBar.setVisibility(View.GONE);
         if (hudTripBar != null) hudTripBar.setVisibility(View.GONE);
+        if (hudLaneBar != null) hudLaneBar.setVisibility(View.GONE);
         wvVideo.loadUrl("about:blank");
         // Feature 8: 保存行程数据
         if (tripStartTime > 0 && tripDistance > 100) {
@@ -792,6 +801,57 @@ public class MainActivity extends AppCompatActivity {
             if (tripOverspeedCount > 0) tripText += " · ⚠" + tripOverspeedCount;
             tvHudTrip.setText(tripText);
         }
+
+        // 变道提醒：进匝道/出匝道/左转/右转/收费站，距离 2km 以内
+        if (hudLaneBar != null) {
+            int turnType = data.nTBTTurnType;
+            int dist = (int) data.nTBTDist;
+            boolean needLaneAlert = dist > 0 && dist <= 2000 && isLaneChangeScenario(turnType);
+
+            if (needLaneAlert) {
+                hudLaneBar.setVisibility(View.VISIBLE);
+                String action = getLaneAction(turnType);
+                String distStr = formatDist(dist);
+                String nextRoad = "";
+                // 从 AmapNaviReceiver 获取下条路名
+                NaviData nd = AmapNaviReceiver.getCurrentData();
+                // 用 szPosRoadName 以外的信息（下条路名在 debug 里）
+
+                tvHudLaneText.setText("前方 " + distStr + " " + action);
+
+                // 详细提示
+                String detail;
+                if (turnType == 14 || turnType == 15) {
+                    detail = "请提前变道至最右车道";
+                } else if (turnType == 2 || turnType == 4 || turnType == 6) {
+                    detail = "请提前变道至最左车道";
+                } else if (turnType == 3 || turnType == 5 || turnType == 7) {
+                    detail = "请提前变道至最右车道";
+                } else if (turnType == 16) {
+                    detail = "请减速准备";
+                } else {
+                    detail = "请注意前方路况";
+                }
+                tvHudLaneDetail.setText(detail);
+
+                // 距离越近越醒目：>1km 黄色, 500m-1km 橙色, <500m 红色
+                if (dist <= 500) {
+                    hudLaneBar.setBackgroundResource(R.drawable.hud_lane_alert);
+                    tvHudLaneIcon.setText("🚨");
+                    tvHudLaneText.setTextColor(0xFFFFFFFF);
+                } else if (dist <= 1000) {
+                    hudLaneBar.setBackgroundResource(R.drawable.hud_lane_warn);
+                    tvHudLaneIcon.setText("⚠️");
+                    tvHudLaneText.setTextColor(0xFFFFFFFF);
+                } else {
+                    hudLaneBar.setBackgroundResource(R.drawable.hud_lane_warn);
+                    tvHudLaneIcon.setText("📍");
+                    tvHudLaneText.setTextColor(0xFFFFFFFF);
+                }
+            } else {
+                hudLaneBar.setVisibility(View.GONE);
+            }
+        }
     }
 
     private String getTurnName(int type) {
@@ -849,6 +909,40 @@ public class MainActivity extends AppCompatActivity {
             case 15: return "🔀";
             case 16: return "🅿️";
             default: return "↗️";
+        }
+    }
+
+    /** 判断是否需要变道提醒的场景 */
+    private boolean isLaneChangeScenario(int turnType) {
+        switch (turnType) {
+            case 2:  // 左转
+            case 3:  // 右转
+            case 4:  // 左前方
+            case 5:  // 右前方
+            case 6:  // 左后方
+            case 7:  // 右后方
+            case 14: // 进匝道
+            case 15: // 出匝道
+            case 16: // 收费站
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** 获取变道动作描述 */
+    private String getLaneAction(int turnType) {
+        switch (turnType) {
+            case 2: return "左转";
+            case 3: return "右转";
+            case 4: return "左前方转弯";
+            case 5: return "右前方转弯";
+            case 6: return "左后方转弯";
+            case 7: return "右后方转弯";
+            case 14: return "进入匝道";
+            case 15: return "驶出匝道";
+            case 16: return "收费站";
+            default: return "转弯";
         }
     }
 
