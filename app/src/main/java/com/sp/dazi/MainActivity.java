@@ -519,6 +519,12 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "请输入 C3 IP 地址", Toast.LENGTH_SHORT).show();
             return;
         }
+        // 收起键盘、移除光标
+        etManualIp.clearFocus();
+        android.view.inputmethod.InputMethodManager imm =
+            (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(etManualIp.getWindowToken(), 0);
+
         saveIp(ip);
         if (serviceBound && bridgeService != null) {
             bridgeService.setC3Ip(ip);
