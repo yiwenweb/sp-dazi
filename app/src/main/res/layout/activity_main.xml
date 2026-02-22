@@ -63,6 +63,87 @@
             android:text="等待连接 C3 视频..."
             android:textSize="16sp"
             android:textColor="#66FFFFFF" />
+
+        <!-- HUD 叠加层：速度 + ACC 状态 -->
+        <LinearLayout
+            android:id="@+id/hud_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="horizontal"
+            android:padding="10dp"
+            android:background="#88000000"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <!-- 当前速度 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:id="@+id/tv_hud_speed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textSize="36sp"
+                    android:textColor="#FFFFFFFF"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="km/h"
+                    android:textSize="11sp"
+                    android:textColor="#99FFFFFF" />
+            </LinearLayout>
+
+            <!-- 巡航速度 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:id="@+id/tv_hud_cruise"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textSize="24sp"
+                    android:textColor="#FF4CAF50"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="巡航"
+                    android:textSize="11sp"
+                    android:textColor="#99FFFFFF" />
+            </LinearLayout>
+
+            <!-- 档位 -->
+            <TextView
+                android:id="@+id/tv_hud_gear"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="P"
+                android:textSize="24sp"
+                android:textColor="#FFFF9800"
+                android:textStyle="bold"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+
+            <!-- 跟车距离 -->
+            <TextView
+                android:id="@+id/tv_hud_gap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●●●"
+                android:textSize="16sp"
+                android:textColor="#FF2196F3"
+                android:paddingEnd="8dp" />
+        </LinearLayout>
     </FrameLayout>
 
     <!-- 下半部：控制面板 -->

@@ -37,6 +37,14 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
+
+import org.json.JSONObject;
+
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final int PERMISSION_REQUEST_CODE = 100;
@@ -49,7 +57,15 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
     private EditText etManualIp;
     private Button btnConnect, btnStartStop, btnDebug, btnExportLog;
-    private LinearLayout debugPanel;
+    private LinearLayout debugPanel, hudOverlay;
+
+    // HUD views
+    private TextView tvHudSpeed, tvHudCruise, tvHudGear, tvHudGap;
+
+    // WebSocket for carstate
+    private OkHttpClient wsClient;
+    private WebSocket carStateWs;
+    private boolean wsConnected = false;
 
     private BridgeService bridgeService;
     private boolean serviceBound = false;
@@ -118,6 +134,7 @@ public class MainActivity extends AppCompatActivity {
             unbindService(serviceConnection);
             serviceBound = false;
         }
+        disconnectCarStateWs();
         if (wvVideo != null) {
             wvVideo.destroy();
         }
@@ -143,6 +160,13 @@ public class MainActivity extends AppCompatActivity {
         btnDebug = findViewById(R.id.btn_debug);
         btnExportLog = findViewById(R.id.btn_export_log);
         debugPanel = findViewById(R.id.debug_panel);
+        hudOverlay = findViewById(R.id.hud_overlay);
+
+        // HUD views
+        tvHudSpeed = findViewById(R.id.tv_hud_speed);
+        tvHudCruise = findViewById(R.id.tv_hud_cruise);
+        tvHudGear = findViewById(R.id.tv_hud_gear);
+        tvHudGap = findViewById(R.id.tv_hud_gap);
 
         // WebView 设置
         WebSettings ws = wvVideo.getSettings();
@@ -164,6 +188,83 @@ public class MainActivity extends AppCompatActivity {
         tvVideoHint.setVisibility(View.GONE);
         videoLoaded = true;
         Log.i(TAG, "加载视频: " + url);
+        // 连接 carstate WebSocket
+        connectCarStateWs(c3Ip);
+    }
+
+    /** 连接 C3 carstate WebSocket，获取速度/ACC状态 */
+    private void connectCarStateWs(String c3Ip) {
+        if (wsConnected) return;
+        if (wsClient == null) {
+            wsClient = new OkHttpClient();
+        }
+        String wsUrl = "ws://" + c3Ip + ":7000/ws/carstate";
+        Request request = new Request.Builder().url(wsUrl).build();
+        carStateWs = wsClient.newWebSocket(request, new WebSocketListener() {
+            @Override
+            public void onOpen(WebSocket ws, Response response) {
+                wsConnected = true;
+                Log.i(TAG, "CarState WebSocket 已连接");
+                uiHandler.post(() -> hudOverlay.setVisibility(View.VISIBLE));
+            }
+
+            @Override
+            public void onMessage(WebSocket ws, String text) {
+                try {
+                    JSONObject j = new JSONObject(text);
+                    double vEgo = j.optDouble("vEgo", 0);
+                    double vSet = j.optDouble("vSetKph", 0);
+                    String gear = j.optString("gear", "P");
+                    int tfGap = j.optInt("tfGap", 2);
+
+                    int speedKph = (int) Math.round(vEgo * 3.6);
+                    int cruiseKph = (int) Math.round(vSet);
+
+                    // 跟车距离用圆点表示
+                    StringBuilder gapDots = new StringBuilder();
+                    for (int i = 0; i < 4; i++) {
+                        gapDots.append(i < tfGap ? "●" : "○");
+                    }
+
+                    uiHandler.post(() -> {
+                        tvHudSpeed.setText(String.valueOf(speedKph));
+                        tvHudCruise.setText(cruiseKph > 0 ? String.valueOf(cruiseKph) : "--");
+                        tvHudCruise.setTextColor(cruiseKph > 0 ? 0xFF4CAF50 : 0xFF999999);
+                        tvHudGear.setText(gear);
+                        tvHudGap.setText(gapDots.toString());
+                    });
+                } catch (Exception e) {
+                    Log.w(TAG, "解析 carstate 失败", e);
+                }
+            }
+
+            @Override
+            public void onFailure(WebSocket ws, Throwable t, Response response) {
+                wsConnected = false;
+                Log.w(TAG, "CarState WebSocket 断开: " + t.getMessage());
+                // 5秒后重连
+                uiHandler.postDelayed(() -> {
+                    if (serviceBound && bridgeService != null) {
+                        String ip = bridgeService.getC3IpAddress();
+                        if (ip != null) connectCarStateWs(ip);
+                    }
+                }, 5000);
+            }
+
+            @Override
+            public void onClosed(WebSocket ws, int code, String reason) {
+                wsConnected = false;
+                Log.i(TAG, "CarState WebSocket 关闭");
+            }
+        });
+    }
+
+    private void disconnectCarStateWs() {
+        wsConnected = false;
+        if (carStateWs != null) {
+            carStateWs.cancel();
+            carStateWs = null;
+        }
     }
 
     private void toggleDebug() {
@@ -242,11 +343,13 @@ public class MainActivity extends AppCompatActivity {
         serviceRunning = false;
         bridgeService = null;
         videoLoaded = false;
+        disconnectCarStateWs();
         btnStartStop.setText("启动服务");
         btnStartStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF4CAF50));
         tvConnectionState.setText("未启动");
         tvConnectionState.setTextColor(0xFF999999);
         tvVideoHint.setVisibility(View.VISIBLE);
+        hudOverlay.setVisibility(View.GONE);
         wvVideo.loadUrl("about:blank");
     }
 
