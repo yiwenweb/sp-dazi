@@ -519,12 +519,22 @@ public class MainActivity extends AppCompatActivity {
 
     private String getTurnName(int type) {
         switch (type) {
-            case 1: return "直行";
             case 2: return "左转";
             case 3: return "右转";
-            case 4: return "掉头";
-            case 5: return "进匝道";
-            default: return "转弯(" + type + ")";
+            case 4: return "左前方";
+            case 5: return "右前方";
+            case 6: return "左后方";
+            case 7: return "右后方";
+            case 8: return "掉头";
+            case 9: return "直行";
+            case 10: return "到达目的地";
+            case 11: return "进环岛";
+            case 12: return "出环岛";
+            case 13: return "途经点";
+            case 14: return "进匝道";
+            case 15: return "出匝道";
+            case 16: return "收费站";
+            default: return "导航(" + type + ")";
         }
     }
 
