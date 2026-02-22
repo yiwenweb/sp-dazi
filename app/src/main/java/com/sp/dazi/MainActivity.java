@@ -5,7 +5,6 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.drawable.GradientDrawable;
@@ -942,10 +941,6 @@ public class MainActivity extends AppCompatActivity {
     // ---- 自定义限速 ----
     private static final int[] SPEED_LEVELS = {120, 100, 80, 60};
 
-    private void saveSpeedMappings() {
-        // 从 SharedPreferences 已保存的值加载（由 dialog 保存）
-    }
-
     private void loadSpeedMappings() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         for (int original : SPEED_LEVELS) {
@@ -956,22 +951,39 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 设置弹窗：自定义限速 + 摄像头切换 */
+    // 当前选中的摄像头
+    private String currentCam = "road";
+
+    /** 设置弹窗：摄像头切换 + 自定义限速 */
     @SuppressWarnings("deprecation")
     private void showSettingsDialog() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
+        // 圆角背景
+        GradientDrawable dialogBg = new GradientDrawable();
+        dialogBg.setColor(0xF01A1A2E);
+        dialogBg.setCornerRadius(dp(16));
+        dialogBg.setStroke(dp(1), 0x336C63FF);
+
         // 根布局
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(16), dp(20), dp(8));
-        root.setBackgroundColor(0xFF1A1A2E);
+        root.setPadding(dp(20), dp(20), dp(20), dp(16));
+        root.setBackground(dialogBg);
+
+        // ── 标题 ──
+        TextView title = new TextView(this);
+        title.setText("⚙️  设置");
+        title.setTextSize(18);
+        title.setTextColor(0xFFFFFFFF);
+        title.setPadding(0, 0, 0, dp(16));
+        root.addView(title);
 
         // ── 摄像头切换 ──
         TextView camTitle = new TextView(this);
         camTitle.setText("📷 摄像头切换");
-        camTitle.setTextSize(14);
-        camTitle.setTextColor(0xFFFFFFFF);
+        camTitle.setTextSize(13);
+        camTitle.setTextColor(0xBBFFFFFF);
         camTitle.setPadding(0, 0, 0, dp(8));
         root.addView(camTitle);
 
@@ -979,55 +991,65 @@ public class MainActivity extends AppCompatActivity {
         camRow.setOrientation(LinearLayout.HORIZONTAL);
         String[] camLabels = {"前方", "广角", "驾驶员"};
         String[] camValues = {"road", "wideRoad", "driver"};
+        Button[] camBtns = new Button[3];
         for (int i = 0; i < 3; i++) {
             Button btn = new Button(this);
             btn.setText(camLabels[i]);
             btn.setTextSize(13);
-            btn.setTextColor(0xFFFFFFFF);
-            btn.setBackgroundColor(0xFF2A2A4A);
+            btn.setAllCaps(false);
             btn.setStateListAnimator(null);
+            btn.setElevation(0);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1);
             lp.setMargins(i == 0 ? 0 : dp(4), 0, i == 2 ? 0 : dp(4), 0);
             btn.setLayoutParams(lp);
+            camBtns[i] = btn;
+
+            // 选中状态
+            boolean selected = camValues[i].equals(currentCam);
+            applyCamBtnStyle(btn, selected);
+
+            final int idx = i;
             final String camVal = camValues[i];
             btn.setOnClickListener(v -> {
-                // 通过 postMessage 切换摄像头
+                currentCam = camVal;
+                // 更新所有按钮样式
+                for (int j = 0; j < 3; j++) {
+                    applyCamBtnStyle(camBtns[j], camValues[j].equals(currentCam));
+                }
+                // 切换摄像头：直接修改页面 cam 变量 + postMessage
                 if (wvVideo != null) {
                     wvVideo.evaluateJavascript(
-                        "document.querySelector('img') || true; " +
-                        "window.postMessage({cam:'" + camVal + "'}, '*');",
+                        "cam='" + camVal + "'; window.postMessage({cam:'" + camVal + "'}, '*');",
                         null);
-                    // 直接修改页面内的 cam 变量
-                    wvVideo.evaluateJavascript("cam='" + camVal + "';", null);
                 }
-                Toast.makeText(this, "切换到: " + ((Button) v).getText(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "已切换: " + camLabels[idx], Toast.LENGTH_SHORT).show();
             });
             camRow.addView(btn);
         }
         root.addView(camRow);
 
-        // 分隔
+        // 分隔线
         View divider = new View(this);
-        divider.setBackgroundColor(0x33FFFFFF);
+        divider.setBackgroundColor(0x22FFFFFF);
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
-        divLp.setMargins(0, dp(14), 0, dp(14));
+        divLp.setMargins(0, dp(16), 0, dp(16));
         divider.setLayoutParams(divLp);
         root.addView(divider);
 
         // ── 自定义限速 ──
         TextView speedTitle = new TextView(this);
         speedTitle.setText("🚀 自定义限速映射");
-        speedTitle.setTextSize(14);
-        speedTitle.setTextColor(0xFFFFFFFF);
-        speedTitle.setPadding(0, 0, 0, dp(8));
+        speedTitle.setTextSize(13);
+        speedTitle.setTextColor(0xBBFFFFFF);
+        speedTitle.setPadding(0, 0, 0, dp(4));
         root.addView(speedTitle);
 
         TextView speedHint = new TextView(this);
-        speedHint.setText("留空 = 不修改，填入目标速度即可");
-        speedHint.setTextSize(11);
-        speedHint.setTextColor(0x99FFFFFF);
-        speedHint.setPadding(0, 0, 0, dp(8));
+        speedHint.setText("留空=不修改  填入目标速度覆盖导航限速");
+        speedHint.setTextSize(10);
+        speedHint.setTextColor(0x77FFFFFF);
+        speedHint.setPadding(0, 0, 0, dp(10));
         root.addView(speedHint);
 
         EditText[] speedFields = new EditText[SPEED_LEVELS.length];
@@ -1035,24 +1057,33 @@ public class MainActivity extends AppCompatActivity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(4), 0, dp(4));
+            row.setPadding(0, dp(3), 0, dp(3));
 
             TextView label = new TextView(this);
             label.setText("限速 " + SPEED_LEVELS[i] + " →");
             label.setTextSize(13);
             label.setTextColor(0xCCFFFFFF);
-            label.setLayoutParams(new LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams lblLp = new LinearLayout.LayoutParams(
+                dp(90), LinearLayout.LayoutParams.WRAP_CONTENT);
+            label.setLayoutParams(lblLp);
             row.addView(label);
+
+            // 输入框带圆角
+            GradientDrawable etBg = new GradientDrawable();
+            etBg.setColor(0xFF2A2A4A);
+            etBg.setCornerRadius(dp(6));
 
             EditText et = new EditText(this);
             et.setHint("" + SPEED_LEVELS[i]);
             et.setTextSize(14);
             et.setTextColor(0xFFFFFFFF);
-            et.setHintTextColor(0x55FFFFFF);
-            et.setBackgroundColor(0xFF2A2A4A);
+            et.setHintTextColor(0x44FFFFFF);
+            et.setBackground(etBg);
             et.setPadding(dp(10), dp(6), dp(10), dp(6));
             et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(dp(80), LinearLayout.LayoutParams.WRAP_CONTENT);
+            et.setGravity(android.view.Gravity.CENTER);
+            LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                dp(72), LinearLayout.LayoutParams.WRAP_CONTENT);
             etLp.setMargins(dp(8), 0, 0, 0);
             et.setLayoutParams(etLp);
 
@@ -1066,15 +1097,14 @@ public class MainActivity extends AppCompatActivity {
 
             TextView unit = new TextView(this);
             unit.setText(" km/h");
-            unit.setTextSize(12);
-            unit.setTextColor(0x99FFFFFF);
+            unit.setTextSize(11);
+            unit.setTextColor(0x77FFFFFF);
             row.addView(unit);
 
             root.addView(row);
         }
 
         // 当前映射状态
-        TextView statusTv = new TextView(this);
         int mapCount = 0;
         StringBuilder mapInfo = new StringBuilder();
         for (int orig : SPEED_LEVELS) {
@@ -1085,56 +1115,101 @@ public class MainActivity extends AppCompatActivity {
                 mapInfo.append(orig).append("→").append(t);
             }
         }
-        statusTv.setText(mapCount > 0 ? "当前: " + mapInfo : "无映射");
-        statusTv.setTextSize(11);
-        statusTv.setTextColor(mapCount > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
-        statusTv.setPadding(0, dp(8), 0, 0);
-        root.addView(statusTv);
+        if (mapCount > 0) {
+            TextView statusTv = new TextView(this);
+            statusTv.setText("✅ 当前: " + mapInfo);
+            statusTv.setTextSize(11);
+            statusTv.setTextColor(0xFF00E5A0);
+            statusTv.setPadding(0, dp(10), 0, 0);
+            root.addView(statusTv);
+        }
 
-        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog)
+        // ── 按钮行 ──
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setGravity(android.view.Gravity.END);
+        LinearLayout.LayoutParams btnRowLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        btnRowLp.setMargins(0, dp(18), 0, 0);
+        btnRow.setLayoutParams(btnRowLp);
+
+        Button btnCancel = new Button(this);
+        btnCancel.setText("取消");
+        btnCancel.setTextSize(13);
+        btnCancel.setTextColor(0x99FFFFFF);
+        btnCancel.setBackgroundColor(0x00000000);
+        btnCancel.setStateListAnimator(null);
+        btnCancel.setAllCaps(false);
+        btnRow.addView(btnCancel);
+
+        Button btnSave = new Button(this);
+        btnSave.setText("保存");
+        btnSave.setTextSize(13);
+        btnSave.setTextColor(0xFF00E5A0);
+        btnSave.setBackgroundColor(0x00000000);
+        btnSave.setStateListAnimator(null);
+        btnSave.setAllCaps(false);
+        btnRow.addView(btnSave);
+
+        root.addView(btnRow);
+
+        // 创建 Dialog
+        AlertDialog dialog = new AlertDialog.Builder(this)
             .setView(root)
-            .setPositiveButton("保存", (d, w) -> {
-                // 保存限速映射
-                SharedPreferences.Editor editor = prefs.edit();
-                AmapNaviReceiver.clearSpeedMappings();
-                int count = 0;
-                for (int i = 0; i < SPEED_LEVELS.length; i++) {
-                    String text = speedFields[i].getText().toString().trim();
-                    int original = SPEED_LEVELS[i];
-                    if (!text.isEmpty()) {
-                        try {
-                            int target = Integer.parseInt(text);
-                            if (target > 0 && target != original) {
-                                AmapNaviReceiver.setSpeedMapping(original, target);
-                                editor.putInt("speed_map_" + original, target);
-                                count++;
-                            } else {
-                                editor.remove("speed_map_" + original);
-                            }
-                        } catch (NumberFormatException e) {
-                            editor.remove("speed_map_" + original);
-                        }
-                    } else {
-                        editor.remove("speed_map_" + original);
-                    }
-                }
-                editor.apply();
-                Toast.makeText(this,
-                    count > 0 ? count + "条限速映射已保存" : "已清除所有映射",
-                    Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("取消", null)
             .create();
 
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         }
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnSave.setOnClickListener(v -> {
+            // 保存限速映射
+            SharedPreferences.Editor editor = prefs.edit();
+            AmapNaviReceiver.clearSpeedMappings();
+            int count = 0;
+            for (int i = 0; i < SPEED_LEVELS.length; i++) {
+                String text = speedFields[i].getText().toString().trim();
+                int original = SPEED_LEVELS[i];
+                if (!text.isEmpty()) {
+                    try {
+                        int target = Integer.parseInt(text);
+                        if (target > 0 && target != original) {
+                            AmapNaviReceiver.setSpeedMapping(original, target);
+                            editor.putInt("speed_map_" + original, target);
+                            count++;
+                        } else {
+                            editor.remove("speed_map_" + original);
+                        }
+                    } catch (NumberFormatException e) {
+                        editor.remove("speed_map_" + original);
+                    }
+                } else {
+                    editor.remove("speed_map_" + original);
+                }
+            }
+            editor.apply();
+            Toast.makeText(this,
+                count > 0 ? count + "条限速映射已保存" : "已清除所有映射",
+                Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
+
         dialog.show();
-        // 按钮颜色
-        try {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFF00E5A0);
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0x99FFFFFF);
-        } catch (Exception ignored) {}
+    }
+
+    /** 摄像头按钮样式：选中/未选中 */
+    private void applyCamBtnStyle(Button btn, boolean selected) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        if (selected) {
+            bg.setColor(0xFF6C63FF);
+            btn.setTextColor(0xFFFFFFFF);
+        } else {
+            bg.setColor(0xFF2A2A4A);
+            btn.setTextColor(0xAAFFFFFF);
+        }
+        btn.setBackground(bg);
     }
 
     // ---- 辅助方法 ----
