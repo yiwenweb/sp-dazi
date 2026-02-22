@@ -68,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvNaviInfo, tvRoadName, tvSpeedLimit;
     private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
     private EditText etManualIp;
-    private Button btnConnect, btnStartStop, btnDebug, btnExportLog, btnSettings;
+    private Button btnConnect, btnStartStop, btnDebug, btnExportLog, btnSettings, btnDiagnose;
     private LinearLayout debugPanel, hudOverlay;
     private ScrollView controlPanel;
     private TextView tvLiveStatus, tvFps;
@@ -295,6 +295,8 @@ public class MainActivity extends AppCompatActivity {
         btnConnect.setOnClickListener(v -> onConnectClicked());
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
         btnSettings.setOnClickListener(v -> showSettingsDialog());
+        btnDiagnose = findViewById(R.id.btn_diagnose);
+        btnDiagnose.setOnClickListener(v -> runDiagnostics());
         btnDebug.setOnClickListener(v -> toggleDebug());
         btnExportLog.setOnClickListener(v -> onExportLogClicked());
         loadSpeedMappings();
@@ -961,6 +963,143 @@ public class MainActivity extends AppCompatActivity {
 
     // 当前选中的摄像头
     private String currentCam = "road";
+
+    /** 诊断：检测所有关键连接状态 */
+    private void runDiagnostics() {
+        String c3Ip = etManualIp.getText().toString().trim();
+        if (c3Ip.isEmpty() && serviceBound && bridgeService != null) {
+            c3Ip = bridgeService.getC3IpAddress();
+        }
+        if (c3Ip == null || c3Ip.isEmpty()) {
+            Toast.makeText(this, "请先输入 C3 IP", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // 弹窗显示诊断进度
+        GradientDrawable dialogBg = new GradientDrawable();
+        dialogBg.setColor(0xF01A1A2E);
+        dialogBg.setCornerRadius(dp(16));
+        dialogBg.setStroke(dp(1), 0x336C63FF);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(20), dp(20), dp(16));
+        root.setBackground(dialogBg);
+
+        TextView title = new TextView(this);
+        title.setText("🔍  连接诊断");
+        title.setTextSize(18);
+        title.setTextColor(0xFFFFFFFF);
+        title.setPadding(0, 0, 0, dp(12));
+        root.addView(title);
+
+        TextView tvResult = new TextView(this);
+        tvResult.setText("正在检测...");
+        tvResult.setTextSize(12);
+        tvResult.setTextColor(0xCCFFFFFF);
+        tvResult.setFontFeatureSettings("monospace");
+        tvResult.setLineSpacing(dp(4), 1.0f);
+        root.addView(tvResult);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setView(root)
+            .create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        dialog.show();
+
+        // 在后台线程执行诊断
+        final String ip = c3Ip;
+        new Thread(() -> {
+            StringBuilder sb = new StringBuilder();
+
+            // 1. 高德广播
+            long lastNavi = AmapNaviReceiver.getLastUpdateTime();
+            int naviCount = AmapNaviReceiver.getReceiveCount();
+            boolean naviFresh = (System.currentTimeMillis() - lastNavi) < 5000;
+            if (lastNavi == 0) {
+                sb.append("❌ 高德广播：未收到任何数据\n");
+            } else if (!naviFresh) {
+                sb.append("⚠️ 高德广播：数据过期 ").append((System.currentTimeMillis() - lastNavi) / 1000).append("s (共").append(naviCount).append("条)\n");
+            } else {
+                sb.append("✅ 高德广播：正常 (共").append(naviCount).append("条)\n");
+            }
+
+            // 2. 桥接服务
+            if (serviceBound && bridgeService != null) {
+                BridgeService.ConnectionState state = bridgeService.getConnectionState();
+                int packets = bridgeService.getPacketCount();
+                sb.append(state == BridgeService.ConnectionState.CONNECTED
+                    ? "✅ 桥接服务：已连接 (" + packets + "包)\n"
+                    : "❌ 桥接服务：" + state + "\n");
+            } else {
+                sb.append("❌ 桥接服务：未启动\n");
+            }
+
+            // 3. C3 网络可达 (HTTP 7000)
+            try {
+                java.net.URL url = new java.net.URL("http://" + ip + ":7000/");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(3000);
+                conn.setReadTimeout(3000);
+                int code = conn.getResponseCode();
+                sb.append("✅ cplink_server (7000)：HTTP ").append(code).append("\n");
+                conn.disconnect();
+            } catch (Exception e) {
+                sb.append("❌ cplink_server (7000)：").append(e.getMessage()).append("\n");
+            }
+
+            // 4. 视频流服务 (HTTP 8099)
+            try {
+                java.net.URL url = new java.net.URL("http://" + ip + ":8099/status");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(3000);
+                conn.setReadTimeout(3000);
+                int code = conn.getResponseCode();
+                if (code == 200) {
+                    java.io.InputStream is = conn.getInputStream();
+                    byte[] buf = new byte[512];
+                    int n = is.read(buf);
+                    String body = n > 0 ? new String(buf, 0, n) : "";
+                    is.close();
+                    sb.append("✅ 视频流 (8099)：").append(body.length() > 60 ? body.substring(0, 60) : body).append("\n");
+                } else {
+                    sb.append("⚠️ 视频流 (8099)：HTTP ").append(code).append("\n");
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                sb.append("❌ 视频流 (8099)：").append(e.getMessage()).append("\n");
+            }
+
+            // 5. WebSocket carstate
+            sb.append(wsConnected ? "✅ WebSocket carstate：已连接\n" : "❌ WebSocket carstate：未连接\n");
+
+            // 6. 视频 WebView
+            sb.append(videoLoaded ? "✅ 视频画面：已加载\n" : "❌ 视频画面：未加载\n");
+
+            // 7. 限速映射
+            java.util.Map<Integer, Integer> maps = AmapNaviReceiver.getSpeedMappings();
+            if (maps.isEmpty()) {
+                sb.append("ℹ️ 限速映射：无\n");
+            } else {
+                sb.append("ℹ️ 限速映射：");
+                for (java.util.Map.Entry<Integer, Integer> e : maps.entrySet()) {
+                    sb.append(e.getKey()).append("→").append(e.getValue()).append(" ");
+                }
+                sb.append("\n");
+            }
+
+            // 8. 当前导航数据摘要
+            NaviData nd = AmapNaviReceiver.getCurrentData();
+            sb.append("ℹ️ 导航：").append(nd.szPosRoadName.isEmpty() ? "无路名" : nd.szPosRoadName);
+            sb.append(" 限速:").append(nd.nRoadLimitSpeed > 0 ? nd.nRoadLimitSpeed + "km/h" : "无");
+            sb.append(" GPS:").append(nd.vpPosPointLat != 0 ? "有" : "无").append("\n");
+
+            final String result = sb.toString();
+            uiHandler.post(() -> tvResult.setText(result));
+        }).start();
+    }
 
     /** 设置弹窗：摄像头切换 + 自定义限速 */
     @SuppressWarnings("deprecation")
