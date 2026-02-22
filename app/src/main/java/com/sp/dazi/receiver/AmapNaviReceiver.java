@@ -131,8 +131,13 @@ public class AmapNaviReceiver extends BroadcastReceiver {
 
         // 限速 (-1 表示无限速)，应用自定义映射
         int limitSpeed = b.getInt("LIMITED_SPEED", -1);
-        int mappedSpeed = limitSpeed > 0 ? applySpeedMapping(limitSpeed) : 0;
-        sData.nRoadLimitSpeed = mappedSpeed;
+        if (limitSpeed > 0) {
+            int mappedSpeed = applySpeedMapping(limitSpeed);
+            sData.nRoadLimitSpeed = mappedSpeed;
+        } else {
+            sData.nRoadLimitSpeed = 0;
+            sOriginalSpeed = 0;  // 无限速时重置，避免显示 "40→0"
+        }
 
         // GPS (高德车机版可能返回 0.0，表示无定位)
         double lat = b.getDouble("CAR_LATITUDE", 0);
@@ -201,8 +206,8 @@ public class AmapNaviReceiver extends BroadcastReceiver {
 
         // 调试信息
         String limitInfo = limitSpeed > 0 ? limitSpeed + "km/h" : "无";
-        if (limitSpeed > 0 && mappedSpeed != limitSpeed) {
-            limitInfo += "→" + mappedSpeed;
+        if (limitSpeed > 0 && sData.nRoadLimitSpeed != limitSpeed) {
+            limitInfo += "→" + sData.nRoadLimitSpeed;
         }
         sDebugInfo = "道路:" + sData.szPosRoadName
             + " 限速:" + limitInfo

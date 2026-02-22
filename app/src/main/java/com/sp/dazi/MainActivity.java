@@ -306,7 +306,7 @@ public class MainActivity extends AppCompatActivity {
         wvVideo.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // 注入 JS：监听 iframe postMessage 中的 fps，转发给 Android
+                // 注入 JS：监听 postMessage 中的 fps，转发给 Android
                 view.evaluateJavascript(
                     "window.addEventListener('message', function(e) {" +
                     "  if (e.data && typeof e.data.fps === 'number') {" +
@@ -317,6 +317,8 @@ public class MainActivity extends AppCompatActivity {
         });
         wvVideo.loadUrl(url);
         tvVideoHint.setVisibility(View.GONE);
+        // 视频加载后立即显示 HUD（不等 WebSocket）
+        hudOverlay.setVisibility(View.VISIBLE);
         videoLoaded = true;
         Log.i(TAG, "加载视频: " + url);
         // 连接 carstate WebSocket
