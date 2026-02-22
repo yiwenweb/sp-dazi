@@ -136,6 +136,52 @@
                 android:paddingStart="10dp" />
         </LinearLayout>
 
+        <!-- HUD 测速/区间测速提醒条 -->
+        <LinearLayout
+            android:id="@+id/hud_sdi_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="96dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:background="@drawable/hud_pill"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📷"
+                android:textSize="13sp"
+                android:paddingEnd="6dp" />
+
+            <TextView
+                android:id="@+id/tv_hud_sdi_speed"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text=""
+                android:textSize="13sp"
+                android:textColor="@color/accent_warm"
+                android:fontFamily="sans-serif-medium" />
+
+            <TextView
+                android:id="@+id/tv_hud_sdi_dist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="10dp" />
+        </LinearLayout>
+
         <!-- HUD 底部叠加层 -->
         <LinearLayout
             android:id="@+id/hud_overlay"
@@ -268,6 +314,7 @@
 
     <!-- ═══════════ 下半部：控制面板 ═══════════ -->
     <ScrollView
+        android:id="@+id/control_panel"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"

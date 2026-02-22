@@ -4,7 +4,10 @@ import android.Manifest;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -20,6 +23,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -49,6 +53,8 @@ import org.json.JSONObject;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final int PERMISSION_REQUEST_CODE = 100;
+    private static final String PREFS_NAME = "sp_dazi_prefs";
+    private static final String KEY_C3_IP = "c3_ip";
 
     // Views
     private WebView wvVideo;
@@ -60,12 +66,14 @@ public class MainActivity extends AppCompatActivity {
     private EditText etManualIp;
     private Button btnConnect, btnStartStop, btnDebug, btnExportLog;
     private LinearLayout debugPanel, hudOverlay;
+    private ScrollView controlPanel;
 
     // HUD views
     private TextView tvHudSpeed, tvHudCruise, tvHudGear, tvHudGap;
     private TextView tvHudTlight, tvHudTlightSec;
-    private LinearLayout hudTlight, hudNaviBar;
+    private LinearLayout hudTlight, hudNaviBar, hudSdiBar;
     private TextView tvHudRoad, tvHudRemain;
+    private TextView tvHudSdiSpeed, tvHudSdiDist;
 
     // WebSocket for carstate
     private OkHttpClient wsClient;
@@ -118,6 +126,8 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         initViews();
+        loadSavedIp();
+        applyOrientationLayout();
         requestPermissions();
     }
 
@@ -131,6 +141,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         stopUIUpdate();
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyOrientationLayout();
     }
 
     @Override
@@ -179,6 +195,10 @@ public class MainActivity extends AppCompatActivity {
         hudNaviBar = findViewById(R.id.hud_navi_bar);
         tvHudRoad = findViewById(R.id.tv_hud_road);
         tvHudRemain = findViewById(R.id.tv_hud_remain);
+        hudSdiBar = findViewById(R.id.hud_sdi_bar);
+        tvHudSdiSpeed = findViewById(R.id.tv_hud_sdi_speed);
+        tvHudSdiDist = findViewById(R.id.tv_hud_sdi_dist);
+        controlPanel = findViewById(R.id.control_panel);
 
         // WebView 设置
         WebSettings ws = wvVideo.getSettings();
@@ -356,6 +376,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "请输入 C3 IP 地址", Toast.LENGTH_SHORT).show();
             return;
         }
+        saveIp(ip);
         if (serviceBound && bridgeService != null) {
             bridgeService.setC3Ip(ip);
             loadVideo(ip);
@@ -398,6 +419,7 @@ public class MainActivity extends AppCompatActivity {
         String ip = etManualIp.getText().toString().trim();
         if (!ip.isEmpty()) {
             intent.putExtra("c3_ip", ip);
+            saveIp(ip);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent);
@@ -509,8 +531,38 @@ public class MainActivity extends AppCompatActivity {
 
         if (data.nSdiType >= 0 && data.nSdiSpeedLimit > 0) {
             tvSdiInfo.setText("限" + data.nSdiSpeedLimit + "km/h " + (int) data.nSdiDist + "m");
+            // 更新 HUD 区间测速/测速条
+            if (hudSdiBar != null) {
+                hudSdiBar.setVisibility(View.VISIBLE);
+                tvHudSdiSpeed.setText(data.nSdiSpeedLimit + "km/h");
+                String distStr = data.nSdiDist >= 1000
+                    ? String.format("%.1fkm", data.nSdiDist / 1000.0)
+                    : (int) data.nSdiDist + "m";
+                tvHudSdiDist.setText(distStr);
+                // 区间测速用不同颜色
+                if (data.nSdiBlockType >= 0 && data.nSdiBlockSpeed > 0) {
+                    tvHudSdiSpeed.setText(data.nSdiBlockSpeed + "km/h 区间");
+                    tvHudSdiSpeed.setTextColor(0xFFFF5252);
+                } else {
+                    tvHudSdiSpeed.setTextColor(0xFFFFB74D);
+                }
+            }
+        } else if (data.nSdiBlockType >= 0 && data.nSdiBlockSpeed > 0) {
+            tvSdiInfo.setText("区间" + data.nSdiBlockSpeed + "km/h " + (int) data.nSdiBlockDist + "m");
+            if (hudSdiBar != null) {
+                hudSdiBar.setVisibility(View.VISIBLE);
+                tvHudSdiSpeed.setText(data.nSdiBlockSpeed + "km/h 区间");
+                tvHudSdiSpeed.setTextColor(0xFFFF5252);
+                String distStr = data.nSdiBlockDist >= 1000
+                    ? String.format("%.1fkm", data.nSdiBlockDist / 1000.0)
+                    : (int) data.nSdiBlockDist + "m";
+                tvHudSdiDist.setText(distStr);
+            }
         } else {
             tvSdiInfo.setText("无");
+            if (hudSdiBar != null) {
+                hudSdiBar.setVisibility(View.GONE);
+            }
         }
 
         if (data.nTBTDist > 0 && data.nTBTTurnType > 0) {
@@ -558,6 +610,26 @@ public class MainActivity extends AppCompatActivity {
             case 15: return "出匝道";
             case 16: return "收费站";
             default: return "导航(" + type + ")";
+        }
+    }
+
+    // ---- IP 记忆 ----
+    private void saveIp(String ip) {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_C3_IP, ip).apply();
+    }
+
+    private void loadSavedIp() {
+        String saved = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_C3_IP, "");
+        if (!saved.isEmpty()) {
+            etManualIp.setText(saved);
+        }
+    }
+
+    // ---- 横屏适配 ----
+    private void applyOrientationLayout() {
+        boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        if (controlPanel != null) {
+            controlPanel.setVisibility(landscape ? View.GONE : View.VISIBLE);
         }
     }
 
