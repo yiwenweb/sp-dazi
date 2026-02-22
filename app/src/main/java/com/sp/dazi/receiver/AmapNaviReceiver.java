@@ -101,10 +101,33 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         sData.nTBTTurnType = b.getInt("ICON", sData.nTBTTurnType);
         sData.nTBTDist = b.getInt("SEG_REMAIN_DIS", (int) sData.nTBTDist);
 
-        // 测速摄像头
-        sData.nSdiType = b.getInt("CAMERA_TYPE", sData.nSdiType);
-        sData.nSdiSpeedLimit = b.getInt("CAMERA_SPEED", sData.nSdiSpeedLimit);
-        sData.nSdiDist = b.getInt("CAMERA_DIST", (int) sData.nSdiDist);
+        // 测速摄像头 / 区间测速
+        // CAMERA_TYPE: 0=测速, 1=监控, 2=闯红灯, 3=违章拍照, 4=公交车道,
+        //              5=区间测速起点, 6=区间测速终点, 7=应急车道, 8=非机动车道
+        //              12=其他摄像头
+        int cameraType = b.getInt("CAMERA_TYPE", sData.nSdiType);
+        int cameraSpeed = b.getInt("CAMERA_SPEED", sData.nSdiSpeedLimit);
+        int cameraDist = b.getInt("CAMERA_DIST", (int) sData.nSdiDist);
+
+        if (cameraType == 5 || cameraType == 6) {
+            // 区间测速（起点或终点）
+            sData.nSdiBlockType = cameraType;
+            sData.nSdiBlockSpeed = cameraSpeed;
+            sData.nSdiBlockDist = cameraDist;
+            // 同时清除普通测速
+            sData.nSdiType = -1;
+            sData.nSdiSpeedLimit = 0;
+            sData.nSdiDist = 0;
+        } else {
+            // 普通测速摄像头
+            sData.nSdiType = cameraType;
+            sData.nSdiSpeedLimit = cameraSpeed;
+            sData.nSdiDist = cameraDist;
+            // 清除区间测速
+            sData.nSdiBlockType = -1;
+            sData.nSdiBlockSpeed = 0;
+            sData.nSdiBlockDist = 0;
+        }
 
         // 目的地
         sData.nGoPosDist = b.getInt("ROUTE_REMAIN_DIS", sData.nGoPosDist);
