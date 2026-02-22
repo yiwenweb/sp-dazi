@@ -39,11 +39,48 @@ public class AmapNaviReceiver extends BroadcastReceiver {
     private static int sReceiveCount = 0;
     private static String sDebugInfo = "";
 
+    // 自定义限速映射：原始限速 → 目标限速 (km/h)
+    // 例如 {120: 110} 表示导航限速120时实际按110控制
+    private static final java.util.Map<Integer, Integer> sSpeedMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private static int sOriginalSpeed = 0; // 记录映射前的原始限速，用于 HUD 显示
+
     public static void setCallback(NaviDataCallback cb) { sCallback = cb; }
     public static NaviData getCurrentData() { return sData; }
     public static long getLastUpdateTime() { return sLastUpdateTime; }
     public static int getReceiveCount() { return sReceiveCount; }
     public static String getDebugInfo() { return sDebugInfo; }
+    public static int getOriginalSpeed() { return sOriginalSpeed; }
+
+    /** 设置限速映射：原始限速 → 目标限速 */
+    public static void setSpeedMapping(int originalKph, int targetKph) {
+        if (targetKph > 0 && targetKph != originalKph) {
+            sSpeedMap.put(originalKph, targetKph);
+        } else {
+            sSpeedMap.remove(originalKph);
+        }
+    }
+
+    /** 清除所有限速映射 */
+    public static void clearSpeedMappings() {
+        sSpeedMap.clear();
+    }
+
+    /** 获取当前映射表（用于 UI 显示） */
+    public static java.util.Map<Integer, Integer> getSpeedMappings() {
+        return new java.util.HashMap<>(sSpeedMap);
+    }
+
+    /** 应用限速映射 */
+    private static int applySpeedMapping(int speedKph) {
+        sOriginalSpeed = speedKph;
+        if (speedKph <= 0 || sSpeedMap.isEmpty()) return speedKph;
+        Integer mapped = sSpeedMap.get(speedKph);
+        if (mapped != null) {
+            Log.d(TAG, "限速映射: " + speedKph + " → " + mapped + " km/h");
+            return mapped;
+        }
+        return speedKph;
+    }
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -92,9 +129,10 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         if (roadName != null) sData.szPosRoadName = roadName;
         sData.roadcate = b.getInt("ROAD_TYPE", sData.roadcate);
 
-        // 限速 (-1 表示无限速)
+        // 限速 (-1 表示无限速)，应用自定义映射
         int limitSpeed = b.getInt("LIMITED_SPEED", -1);
-        sData.nRoadLimitSpeed = limitSpeed > 0 ? limitSpeed : 0;
+        int mappedSpeed = limitSpeed > 0 ? applySpeedMapping(limitSpeed) : 0;
+        sData.nRoadLimitSpeed = mappedSpeed;
 
         // GPS (高德车机版可能返回 0.0，表示无定位)
         double lat = b.getDouble("CAR_LATITUDE", 0);
@@ -162,8 +200,12 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         String nextRoad = b.getString("NEXT_ROAD_NAME", null);
 
         // 调试信息
+        String limitInfo = limitSpeed > 0 ? limitSpeed + "km/h" : "无";
+        if (limitSpeed > 0 && mappedSpeed != limitSpeed) {
+            limitInfo += "→" + mappedSpeed;
+        }
         sDebugInfo = "道路:" + sData.szPosRoadName
-            + " 限速:" + (limitSpeed > 0 ? limitSpeed + "km/h" : "无")
+            + " 限速:" + limitInfo
             + " 摄像头:" + sData.nSdiType + "/" + sData.nSdiSpeedLimit + "km/h/" + (int)sData.nSdiDist + "m"
             + "\n转弯:" + sData.nTBTTurnType + " " + (int)sData.nTBTDist + "m"
             + " 下条路:" + (nextRoad != null ? nextRoad : "--")

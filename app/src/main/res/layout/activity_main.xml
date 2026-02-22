@@ -46,10 +46,11 @@
             android:orientation="horizontal"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
-            android:paddingTop="6dp"
+            android:paddingTop="28dp"
             android:paddingBottom="16dp"
             android:background="@drawable/video_overlay_top"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:fitsSystemWindows="true">
 
             <!-- 状态指示点 -->
             <View
@@ -94,7 +95,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|end"
-            android:layout_marginTop="30dp"
+            android:layout_marginTop="50dp"
             android:layout_marginEnd="10dp"
             android:orientation="horizontal"
             android:paddingStart="10dp"
@@ -807,6 +808,209 @@
                     android:textSize="13sp"
                     android:textColor="@color/text_secondary"
                     android:background="@drawable/btn_secondary"
+                    android:fontFamily="sans-serif-medium"
+                    android:stateListAnimator="@null"
+                    android:elevation="0dp" />
+            </LinearLayout>
+
+            <!-- ── 自定义限速设置 ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/card_bg"
+                android:padding="14dp"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingBottom="8dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="⚡"
+                        android:textSize="16sp"
+                        android:paddingEnd="8dp" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="自定义限速"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"
+                        android:fontFamily="sans-serif-medium" />
+                    <TextView
+                        android:id="@+id/tv_speed_map_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="无映射"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="导航限速 → 实际控速（留空或相同=不改）"
+                    android:textSize="10sp"
+                    android:textColor="@color/text_hint"
+                    android:paddingBottom="8dp" />
+
+                <!-- 限速映射行：120 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+                    <TextView
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="120 →"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"
+                        android:fontFamily="sans-serif-medium" />
+                    <EditText
+                        android:id="@+id/et_speed_120"
+                        android:layout_width="60dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/edit_bg"
+                        android:hint="120"
+                        android:textColorHint="@color/text_hint"
+                        android:textColor="@color/accent"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:inputType="number"
+                        android:importantForAutofill="no"
+                        android:maxLength="3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" km/h"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
+                </LinearLayout>
+
+                <!-- 限速映射行：100 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+                    <TextView
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="100 →"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"
+                        android:fontFamily="sans-serif-medium" />
+                    <EditText
+                        android:id="@+id/et_speed_100"
+                        android:layout_width="60dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/edit_bg"
+                        android:hint="100"
+                        android:textColorHint="@color/text_hint"
+                        android:textColor="@color/accent"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:inputType="number"
+                        android:importantForAutofill="no"
+                        android:maxLength="3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" km/h"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
+                </LinearLayout>
+
+                <!-- 限速映射行：80 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+                    <TextView
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="80 →"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"
+                        android:fontFamily="sans-serif-medium" />
+                    <EditText
+                        android:id="@+id/et_speed_80"
+                        android:layout_width="60dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/edit_bg"
+                        android:hint="80"
+                        android:textColorHint="@color/text_hint"
+                        android:textColor="@color/accent"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:inputType="number"
+                        android:importantForAutofill="no"
+                        android:maxLength="3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" km/h"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
+                </LinearLayout>
+
+                <!-- 限速映射行：60 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="60 →"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_primary"
+                        android:fontFamily="sans-serif-medium" />
+                    <EditText
+                        android:id="@+id/et_speed_60"
+                        android:layout_width="60dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/edit_bg"
+                        android:hint="60"
+                        android:textColorHint="@color/text_hint"
+                        android:textColor="@color/accent"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:inputType="number"
+                        android:importantForAutofill="no"
+                        android:maxLength="3" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" km/h"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btn_save_speed_map"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="保存限速设置"
+                    android:textSize="13sp"
+                    android:textColor="#FF0D0D1A"
+                    android:background="@drawable/btn_primary"
                     android:fontFamily="sans-serif-medium"
                     android:stateListAnimator="@null"
                     android:elevation="0dp" />

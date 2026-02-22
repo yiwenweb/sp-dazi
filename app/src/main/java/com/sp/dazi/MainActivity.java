@@ -69,6 +69,10 @@ public class MainActivity extends AppCompatActivity {
     private Button btnConnect, btnStartStop, btnDebug, btnExportLog;
     private LinearLayout debugPanel, hudOverlay;
     private ScrollView controlPanel;
+    // 自定义限速
+    private EditText etSpeed120, etSpeed100, etSpeed80, etSpeed60;
+    private Button btnSaveSpeedMap;
+    private TextView tvSpeedMapStatus;
 
     // HUD views
     private TextView tvHudSpeed, tvHudCruise, tvHudGear, tvHudGap;
@@ -159,6 +163,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 沉浸式状态栏 — 内容延伸到状态栏下方
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        }
         setContentView(R.layout.activity_main);
         initViews();
         loadSavedIp();
@@ -234,6 +244,13 @@ public class MainActivity extends AppCompatActivity {
         tvHudSdiSpeed = findViewById(R.id.tv_hud_sdi_speed);
         tvHudSdiDist = findViewById(R.id.tv_hud_sdi_dist);
         controlPanel = findViewById(R.id.control_panel);
+        // 自定义限速
+        etSpeed120 = findViewById(R.id.et_speed_120);
+        etSpeed100 = findViewById(R.id.et_speed_100);
+        etSpeed80 = findViewById(R.id.et_speed_80);
+        etSpeed60 = findViewById(R.id.et_speed_60);
+        btnSaveSpeedMap = findViewById(R.id.btn_save_speed_map);
+        tvSpeedMapStatus = findViewById(R.id.tv_speed_map_status);
         // Feature 3
         hudSapaBar = findViewById(R.id.hud_sapa_bar);
         tvHudSapaIcon = findViewById(R.id.tv_hud_sapa_icon);
@@ -270,6 +287,8 @@ public class MainActivity extends AppCompatActivity {
         btnStartStop.setOnClickListener(v -> onStartStopClicked());
         btnDebug.setOnClickListener(v -> toggleDebug());
         btnExportLog.setOnClickListener(v -> onExportLogClicked());
+        btnSaveSpeedMap.setOnClickListener(v -> saveSpeedMappings());
+        loadSpeedMappings();
     }
 
     private void loadVideo(String c3Ip) {
@@ -646,6 +665,14 @@ public class MainActivity extends AppCompatActivity {
 
         tvRoadName.setText(data.szPosRoadName.isEmpty() ? "--" : data.szPosRoadName);
         tvSpeedLimit.setText(data.nRoadLimitSpeed > 0 ? data.nRoadLimitSpeed + " km/h" : "--");
+        // 显示映射信息
+        int origSpeed = AmapNaviReceiver.getOriginalSpeed();
+        if (origSpeed > 0 && origSpeed != data.nRoadLimitSpeed) {
+            tvSpeedLimit.setText(origSpeed + "→" + data.nRoadLimitSpeed + " km/h");
+            tvSpeedLimit.setTextColor(0xFF00E5A0);
+        } else {
+            tvSpeedLimit.setTextColor(0xFFFFFFFF);
+        }
 
         if (data.nSdiType >= 0 && data.nSdiSpeedLimit > 0) {
             tvSdiInfo.setText("限" + data.nSdiSpeedLimit + "km/h " + (int) data.nSdiDist + "m");
@@ -884,6 +911,58 @@ public class MainActivity extends AppCompatActivity {
         String saved = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_C3_IP, "");
         if (!saved.isEmpty()) {
             etManualIp.setText(saved);
+        }
+    }
+
+    // ---- 自定义限速 ----
+    private static final int[] SPEED_LEVELS = {120, 100, 80, 60};
+
+    private void saveSpeedMappings() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        AmapNaviReceiver.clearSpeedMappings();
+
+        int count = 0;
+        EditText[] fields = {etSpeed120, etSpeed100, etSpeed80, etSpeed60};
+        for (int i = 0; i < SPEED_LEVELS.length; i++) {
+            String text = fields[i].getText().toString().trim();
+            int original = SPEED_LEVELS[i];
+            if (!text.isEmpty()) {
+                int target = Integer.parseInt(text);
+                if (target > 0 && target != original) {
+                    AmapNaviReceiver.setSpeedMapping(original, target);
+                    editor.putInt("speed_map_" + original, target);
+                    count++;
+                } else {
+                    editor.remove("speed_map_" + original);
+                }
+            } else {
+                editor.remove("speed_map_" + original);
+            }
+        }
+        editor.apply();
+        String msg = count > 0 ? count + "条映射已保存" : "无映射";
+        tvSpeedMapStatus.setText(msg);
+        tvSpeedMapStatus.setTextColor(count > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
+        Toast.makeText(this, "限速设置已保存", Toast.LENGTH_SHORT).show();
+    }
+
+    private void loadSpeedMappings() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        EditText[] fields = {etSpeed120, etSpeed100, etSpeed80, etSpeed60};
+        int count = 0;
+        for (int i = 0; i < SPEED_LEVELS.length; i++) {
+            int original = SPEED_LEVELS[i];
+            int target = prefs.getInt("speed_map_" + original, 0);
+            if (target > 0 && target != original) {
+                fields[i].setText(String.valueOf(target));
+                AmapNaviReceiver.setSpeedMapping(original, target);
+                count++;
+            }
+        }
+        if (count > 0) {
+            tvSpeedMapStatus.setText(count + "条映射");
+            tvSpeedMapStatus.setTextColor(0xFF00E5A0);
         }
     }
 
