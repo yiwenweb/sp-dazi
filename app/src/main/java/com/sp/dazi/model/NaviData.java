@@ -40,6 +40,26 @@ public class NaviData {
     public int nTrafficLightDist = 0;  // 到红绿灯距离 m
     public int nTrafficLightSec = 0;   // 倒计时秒数
 
+    // Feature 3: 服务区/收费站
+    public String sapaName = "";       // 服务区名称
+    public int sapaDist = -1;          // 到服务区距离 m (-1=无)
+    public int sapaType = -1;          // 服务区类型
+    public String nextSapaName = "";   // 下一个服务区名称
+    public int nextSapaDist = -1;      // 下一个服务区距离 m
+    public int nextSapaType = -1;      // 下一个服务区类型
+
+    // Feature 4: ETA 到达时间
+    public String etaText = "";        // 预计到达时间文本 (如 "预计明天00:40到达")
+
+    // Feature 5: 路况拥堵
+    public int tmcSlowDist = 0;        // 缓行距离 m (tmc_status=2)
+    public int tmcJamDist = 0;         // 拥堵距离 m (tmc_status=3)
+    public int tmcBlockDist = 0;       // 严重拥堵距离 m (tmc_status=4)
+
+    // Feature 6: 连续转弯预告
+    public int nextNextTurnIcon = 0;   // 下下个转弯类型
+    public String nextNextRoadName = ""; // 下下条路名
+
     public JSONObject toJson() {
         JSONObject j = new JSONObject();
         try {
@@ -61,6 +81,18 @@ public class NaviData {
             j.put("nGoPosTime", nGoPosTime);
             j.put("nTrafficLight", nTrafficLight);
             j.put("nTrafficLightSec", nTrafficLightSec);
+            j.put("sapaName", sapaName);
+            j.put("sapaDist", sapaDist);
+            j.put("sapaType", sapaType);
+            j.put("nextSapaName", nextSapaName);
+            j.put("nextSapaDist", nextSapaDist);
+            j.put("nextSapaType", nextSapaType);
+            j.put("etaText", etaText);
+            j.put("tmcSlowDist", tmcSlowDist);
+            j.put("tmcJamDist", tmcJamDist);
+            j.put("tmcBlockDist", tmcBlockDist);
+            j.put("nextNextTurnIcon", nextNextTurnIcon);
+            j.put("nextNextRoadName", nextNextRoadName);
         } catch (JSONException e) {
             e.printStackTrace();
         }

@@ -88,7 +88,41 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- HUD 导航信息条 -->
+        <!-- Feature 8: 行程统计条 (顶部右侧) -->
+        <LinearLayout
+            android:id="@+id/hud_trip_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="30dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="@drawable/hud_pill"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📊"
+                android:textSize="10sp"
+                android:paddingEnd="4dp" />
+
+            <TextView
+                android:id="@+id/tv_hud_trip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="10sp"
+                android:textColor="@color/text_secondary"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <!-- HUD 导航信息条 (含 ETA) -->
         <LinearLayout
             android:id="@+id/hud_navi_bar"
             android:layout_width="match_parent"
@@ -124,6 +158,18 @@
                 android:fontFamily="sans-serif-medium"
                 android:singleLine="true"
                 android:ellipsize="end" />
+
+            <!-- Feature 4: ETA 到达时间 -->
+            <TextView
+                android:id="@+id/tv_hud_eta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="11sp"
+                android:textColor="@color/hud_gap"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="8dp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/tv_hud_remain"
@@ -180,6 +226,135 @@
                 android:textColor="@color/text_secondary"
                 android:fontFamily="sans-serif-medium"
                 android:paddingStart="10dp" />
+        </LinearLayout>
+
+        <!-- Feature 5: 路况拥堵提醒条 -->
+        <LinearLayout
+            android:id="@+id/hud_tmc_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="124dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/hud_pill"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🚦"
+                android:textSize="12sp"
+                android:paddingEnd="6dp" />
+
+            <TextView
+                android:id="@+id/tv_hud_tmc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="@color/accent_warm"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <!-- Feature 3: 服务区/收费站距离条 -->
+        <LinearLayout
+            android:id="@+id/hud_sapa_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="148dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/hud_pill"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_hud_sapa_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⛽"
+                android:textSize="12sp"
+                android:paddingEnd="6dp" />
+
+            <TextView
+                android:id="@+id/tv_hud_sapa_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="@color/text_primary"
+                android:fontFamily="sans-serif-medium"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/tv_hud_sapa_dist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="@color/accent"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="10dp" />
+        </LinearLayout>
+
+        <!-- Feature 6: 连续转弯预告条 -->
+        <LinearLayout
+            android:id="@+id/hud_next_turn_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="172dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/hud_pill"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_hud_next_turn_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="↗️"
+                android:textSize="12sp"
+                android:paddingEnd="6dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="然后 "
+                android:textSize="11sp"
+                android:textColor="@color/text_hint" />
+
+            <TextView
+                android:id="@+id/tv_hud_next_turn_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="@color/text_primary"
+                android:fontFamily="sans-serif-medium"
+                android:singleLine="true"
+                android:ellipsize="end" />
         </LinearLayout>
 
         <!-- HUD 底部叠加层 -->

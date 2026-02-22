@@ -15,6 +15,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebSettings;
@@ -74,6 +76,36 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout hudTlight, hudNaviBar, hudSdiBar;
     private TextView tvHudRoad, tvHudRemain;
     private TextView tvHudSdiSpeed, tvHudSdiDist;
+    // Feature 3: 服务区
+    private LinearLayout hudSapaBar;
+    private TextView tvHudSapaIcon, tvHudSapaName, tvHudSapaDist;
+    // Feature 4: ETA
+    private TextView tvHudEta;
+    // Feature 5: 路况
+    private LinearLayout hudTmcBar;
+    private TextView tvHudTmc;
+    // Feature 6: 连续转弯
+    private LinearLayout hudNextTurnBar;
+    private TextView tvHudNextTurnIcon, tvHudNextTurnName;
+    // Feature 8: 行程统计
+    private LinearLayout hudTripBar;
+    private TextView tvHudTrip;
+
+    // Feature 7: 超速提醒
+    private Vibrator vibrator;
+    private boolean overspeedAlerted = false;
+    private int currentSpeedKph = 0;
+
+    // Feature 8: 行程记录
+    private static final String KEY_TRIP_START = "trip_start_time";
+    private static final String KEY_TRIP_DIST = "trip_distance";
+    private static final String KEY_TRIP_MAX_SPEED = "trip_max_speed";
+    private static final String KEY_TRIP_OVERSPEED = "trip_overspeed_count";
+    private long tripStartTime = 0;
+    private double tripDistance = 0;
+    private int tripMaxSpeed = 0;
+    private int tripOverspeedCount = 0;
+    private double lastLat = 0, lastLon = 0;
 
     // WebSocket for carstate
     private OkHttpClient wsClient;
@@ -199,6 +231,25 @@ public class MainActivity extends AppCompatActivity {
         tvHudSdiSpeed = findViewById(R.id.tv_hud_sdi_speed);
         tvHudSdiDist = findViewById(R.id.tv_hud_sdi_dist);
         controlPanel = findViewById(R.id.control_panel);
+        // Feature 3
+        hudSapaBar = findViewById(R.id.hud_sapa_bar);
+        tvHudSapaIcon = findViewById(R.id.tv_hud_sapa_icon);
+        tvHudSapaName = findViewById(R.id.tv_hud_sapa_name);
+        tvHudSapaDist = findViewById(R.id.tv_hud_sapa_dist);
+        // Feature 4
+        tvHudEta = findViewById(R.id.tv_hud_eta);
+        // Feature 5
+        hudTmcBar = findViewById(R.id.hud_tmc_bar);
+        tvHudTmc = findViewById(R.id.tv_hud_tmc);
+        // Feature 6
+        hudNextTurnBar = findViewById(R.id.hud_next_turn_bar);
+        tvHudNextTurnIcon = findViewById(R.id.tv_hud_next_turn_icon);
+        tvHudNextTurnName = findViewById(R.id.tv_hud_next_turn_name);
+        // Feature 8
+        hudTripBar = findViewById(R.id.hud_trip_bar);
+        tvHudTrip = findViewById(R.id.tv_hud_trip);
+        // Feature 7
+        vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
 
         // WebView 设置
         WebSettings ws = wvVideo.getSettings();
@@ -256,6 +307,45 @@ public class MainActivity extends AppCompatActivity {
 
                     int speedKph = (int) Math.round(vEgo * 3.6);
                     int cruiseKph = (int) Math.round(vSet);
+                    currentSpeedKph = speedKph;
+
+                    // Feature 7: 超速检测
+                    NaviData nd = AmapNaviReceiver.getCurrentData();
+                    int roadLimit = nd.nRoadLimitSpeed;
+                    boolean isOverspeed = roadLimit > 0 && speedKph > roadLimit + 5;
+
+                    if (isOverspeed && !overspeedAlerted) {
+                        overspeedAlerted = true;
+                        // 震动提醒
+                        if (vibrator != null) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                vibrator.vibrate(VibrationEffect.createWaveform(
+                                    new long[]{0, 200, 100, 200}, -1));
+                            } else {
+                                vibrator.vibrate(new long[]{0, 200, 100, 200}, -1);
+                            }
+                        }
+                        // 记录超速次数
+                        tripOverspeedCount++;
+                    } else if (!isOverspeed) {
+                        overspeedAlerted = false;
+                    }
+
+                    // Feature 8: 行程记录 — 更新最高速度
+                    if (speedKph > tripMaxSpeed) {
+                        tripMaxSpeed = speedKph;
+                    }
+                    // 通过 GPS 累计距离
+                    if (nd.vpPosPointLat != 0 && nd.vpPosPointLon != 0) {
+                        if (lastLat != 0 && lastLon != 0) {
+                            double d = haversine(lastLat, lastLon, nd.vpPosPointLat, nd.vpPosPointLon);
+                            if (d > 5 && d < 2000) { // 过滤GPS跳变
+                                tripDistance += d;
+                            }
+                        }
+                        lastLat = nd.vpPosPointLat;
+                        lastLon = nd.vpPosPointLon;
+                    }
 
                     // 跟车距离用圆点表示
                     StringBuilder gapDots = new StringBuilder();
@@ -310,9 +400,12 @@ public class MainActivity extends AppCompatActivity {
                         remainText = "";
                     }
                     final String roadText = naviRoad;
+                    final boolean speedOverLimit = isOverspeed;
 
                     uiHandler.post(() -> {
                         tvHudSpeed.setText(String.valueOf(speedKph));
+                        // Feature 7: 超速时速度变红
+                        tvHudSpeed.setTextColor(speedOverLimit ? 0xFFFF5252 : 0xFFFFFFFF);
                         tvHudCruise.setText(cruiseKph > 0 ? String.valueOf(cruiseKph) : "--");
                         tvHudCruise.setTextColor(cruiseKph > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
                         tvHudGear.setText(gear);
@@ -432,6 +525,13 @@ public class MainActivity extends AppCompatActivity {
         btnStartStop.setBackgroundResource(R.drawable.btn_stop);
         btnStartStop.setTextColor(0xFFFFFFFF);
         Toast.makeText(this, "服务已启动", Toast.LENGTH_SHORT).show();
+        // Feature 8: 开始行程记录
+        tripStartTime = System.currentTimeMillis();
+        tripDistance = 0;
+        tripMaxSpeed = 0;
+        tripOverspeedCount = 0;
+        lastLat = 0;
+        lastLon = 0;
     }
 
     private void stopBridgeService() {
@@ -452,7 +552,16 @@ public class MainActivity extends AppCompatActivity {
         setStatusDotColor(0x66FFFFFF);
         tvVideoHint.setVisibility(View.VISIBLE);
         hudOverlay.setVisibility(View.GONE);
+        if (hudSapaBar != null) hudSapaBar.setVisibility(View.GONE);
+        if (hudTmcBar != null) hudTmcBar.setVisibility(View.GONE);
+        if (hudNextTurnBar != null) hudNextTurnBar.setVisibility(View.GONE);
+        if (hudTripBar != null) hudTripBar.setVisibility(View.GONE);
         wvVideo.loadUrl("about:blank");
+        // Feature 8: 保存行程数据
+        if (tripStartTime > 0 && tripDistance > 100) {
+            saveTripData();
+        }
+        tripStartTime = 0;
     }
 
     private void startUIUpdate() {
@@ -590,6 +699,99 @@ public class MainActivity extends AppCompatActivity {
                 tvDebugInfo.setText("暂无数据");
             }
         }
+
+        // Feature 3: 服务区/收费站 HUD
+        if (hudSapaBar != null) {
+            // 优先显示最近的服务区
+            int dist = data.sapaDist;
+            String name = data.sapaName;
+            int type = data.sapaType;
+            if (dist <= 0 && data.nextSapaDist > 0) {
+                dist = data.nextSapaDist;
+                name = data.nextSapaName;
+                type = data.nextSapaType;
+            }
+            if (dist > 0 && name != null && !name.isEmpty()) {
+                hudSapaBar.setVisibility(View.VISIBLE);
+                // type: 0=服务区, 1=收费站, 2=加油站
+                String icon = type == 1 ? "🅿️" : type == 2 ? "⛽" : "🛑";
+                tvHudSapaIcon.setText(icon);
+                tvHudSapaName.setText(name);
+                String distStr = dist >= 1000
+                    ? String.format("%.1fkm", dist / 1000.0)
+                    : dist + "m";
+                tvHudSapaDist.setText(distStr);
+            } else {
+                hudSapaBar.setVisibility(View.GONE);
+            }
+        }
+
+        // Feature 4: ETA 到达时间
+        if (tvHudEta != null) {
+            String eta = data.etaText;
+            if (eta != null && !eta.isEmpty()) {
+                tvHudEta.setVisibility(View.VISIBLE);
+                // 简化显示：去掉"预计"前缀
+                String shortEta = eta.replace("预计", "").trim();
+                tvHudEta.setText(shortEta);
+            } else {
+                tvHudEta.setVisibility(View.GONE);
+            }
+        }
+
+        // Feature 5: 路况拥堵提醒
+        if (hudTmcBar != null) {
+            int totalCongestion = data.tmcJamDist + data.tmcBlockDist;
+            if (totalCongestion > 0 || data.tmcSlowDist > 1000) {
+                hudTmcBar.setVisibility(View.VISIBLE);
+                StringBuilder sb = new StringBuilder();
+                if (data.tmcBlockDist > 0) {
+                    sb.append("严重拥堵 ").append(formatDist(data.tmcBlockDist));
+                }
+                if (data.tmcJamDist > 0) {
+                    if (sb.length() > 0) sb.append(" · ");
+                    sb.append("拥堵 ").append(formatDist(data.tmcJamDist));
+                }
+                if (data.tmcSlowDist > 1000) {
+                    if (sb.length() > 0) sb.append(" · ");
+                    sb.append("缓行 ").append(formatDist(data.tmcSlowDist));
+                }
+                tvHudTmc.setText(sb.toString());
+                // 严重拥堵用红色，普通拥堵用橙色
+                tvHudTmc.setTextColor(data.tmcBlockDist > 0 ? 0xFFFF5252 : 0xFFFFB74D);
+            } else {
+                hudTmcBar.setVisibility(View.GONE);
+            }
+        }
+
+        // Feature 6: 连续转弯预告
+        if (hudNextTurnBar != null) {
+            if (data.nextNextTurnIcon > 0 && data.nextNextRoadName != null && !data.nextNextRoadName.isEmpty()) {
+                hudNextTurnBar.setVisibility(View.VISIBLE);
+                tvHudNextTurnIcon.setText(getTurnEmoji(data.nextNextTurnIcon));
+                tvHudNextTurnName.setText(getTurnName(data.nextNextTurnIcon) + " " + data.nextNextRoadName);
+            } else {
+                hudNextTurnBar.setVisibility(View.GONE);
+            }
+        }
+
+        // Feature 8: 行程统计
+        if (hudTripBar != null && tripStartTime > 0) {
+            hudTripBar.setVisibility(View.VISIBLE);
+            long elapsed = (System.currentTimeMillis() - tripStartTime) / 1000;
+            int mins = (int) (elapsed / 60);
+            String distStr = tripDistance >= 1000
+                ? String.format("%.1fkm", tripDistance / 1000.0)
+                : (int) tripDistance + "m";
+            int avgSpeed = elapsed > 60 && tripDistance > 100
+                ? (int) (tripDistance / elapsed * 3.6)
+                : 0;
+            String tripText = distStr + " · " + mins + "min";
+            if (avgSpeed > 0) tripText += " · 均" + avgSpeed;
+            if (tripMaxSpeed > 0) tripText += " · 峰" + tripMaxSpeed;
+            if (tripOverspeedCount > 0) tripText += " · ⚠" + tripOverspeedCount;
+            tvHudTrip.setText(tripText);
+        }
     }
 
     private String getTurnName(int type) {
@@ -623,6 +825,69 @@ public class MainActivity extends AppCompatActivity {
         if (!saved.isEmpty()) {
             etManualIp.setText(saved);
         }
+    }
+
+    // ---- 辅助方法 ----
+    private String formatDist(int meters) {
+        if (meters >= 1000) {
+            return String.format("%.1fkm", meters / 1000.0);
+        }
+        return meters + "m";
+    }
+
+    private String getTurnEmoji(int type) {
+        switch (type) {
+            case 2: return "⬅️";
+            case 3: return "➡️";
+            case 4: return "↖️";
+            case 5: return "↗️";
+            case 6: return "↙️";
+            case 7: return "↘️";
+            case 8: return "↩️";
+            case 9: return "⬆️";
+            case 14: return "🔀";
+            case 15: return "🔀";
+            case 16: return "🅿️";
+            default: return "↗️";
+        }
+    }
+
+    /** Haversine 公式计算两点距离 (米) */
+    private static double haversine(double lat1, double lon1, double lat2, double lon2) {
+        double R = 6371000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+            + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+            * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /** Feature 8: 保存行程数据到 SharedPreferences */
+    private void saveTripData() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        long elapsed = (System.currentTimeMillis() - tripStartTime) / 1000;
+        int avgSpeed = elapsed > 60 ? (int) (tripDistance / elapsed * 3.6) : 0;
+        String summary = String.format("%.1fkm %dmin 均速%d 峰速%d 超速%d次",
+            tripDistance / 1000.0, elapsed / 60, avgSpeed, tripMaxSpeed, tripOverspeedCount);
+        // 追加到历史记录
+        String history = prefs.getString("trip_history", "");
+        String timestamp = new java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+            .format(new java.util.Date(tripStartTime));
+        String entry = timestamp + " " + summary;
+        if (!history.isEmpty()) {
+            // 最多保留 20 条
+            String[] lines = history.split("\n");
+            if (lines.length >= 20) {
+                StringBuilder sb = new StringBuilder();
+                for (int i = lines.length - 19; i < lines.length; i++) {
+                    sb.append(lines[i]).append("\n");
+                }
+                history = sb.toString();
+            }
+        }
+        prefs.edit().putString("trip_history", history + entry + "\n").apply();
+        Log.i(TAG, "行程已保存: " + entry);
     }
 
     // ---- 横屏适配 ----

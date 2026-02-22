@@ -8,6 +8,9 @@ import android.util.Log;
 
 import com.sp.dazi.model.NaviData;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 /**
  * 高德车机版 (AmapAuto) 导航广播接收器
  *
@@ -66,8 +69,11 @@ public class AmapNaviReceiver extends BroadcastReceiver {
             case 60073:
                 parseTrafficLight(bundle);
                 break;
+            case 13011:
+                parseTmcData(bundle);
+                break;
             default:
-                // 12205(地理位置), 13011(路况), 10019(状态) 等暂不处理
+                // 12205(地理位置), 10019(状态) 等暂不处理
                 break;
         }
 
@@ -133,6 +139,25 @@ public class AmapNaviReceiver extends BroadcastReceiver {
         sData.nGoPosDist = b.getInt("ROUTE_REMAIN_DIS", sData.nGoPosDist);
         sData.nGoPosTime = b.getInt("ROUTE_REMAIN_TIME", sData.nGoPosTime);
 
+        // Feature 3: 服务区/收费站
+        String sapaName = b.getString("SAPA_NAME", null);
+        sData.sapaDist = b.getInt("SAPA_DIST", sData.sapaDist);
+        sData.sapaType = b.getInt("SAPA_TYPE", sData.sapaType);
+        if (sapaName != null) sData.sapaName = sapaName;
+        String nextSapaName = b.getString("NEXT_SAPA_NAME", null);
+        sData.nextSapaDist = b.getInt("NEXT_SAPA_DIST", sData.nextSapaDist);
+        sData.nextSapaType = b.getInt("NEXT_SAPA_TYPE", sData.nextSapaType);
+        if (nextSapaName != null) sData.nextSapaName = nextSapaName;
+
+        // Feature 4: ETA 到达时间
+        String etaText = b.getString("ETA_TEXT", null);
+        if (etaText != null && !etaText.isEmpty()) sData.etaText = etaText;
+
+        // Feature 6: 连续转弯预告
+        sData.nextNextTurnIcon = b.getInt("NEXT_NEXT_TURN_ICON", sData.nextNextTurnIcon);
+        String nnRoad = b.getString("NEXT_NEXT_ROAD_NAME", null);
+        if (nnRoad != null) sData.nextNextRoadName = nnRoad;
+
         // 下一条路名
         String nextRoad = b.getString("NEXT_ROAD_NAME", null);
 
@@ -159,5 +184,38 @@ public class AmapNaviReceiver extends BroadcastReceiver {
 
         Log.d(TAG, "红绿灯 #" + sReceiveCount + " status=" + sData.nTrafficLight
             + " countdown=" + sData.nTrafficLightSec + "s");
+    }
+
+    /**
+     * 解析 KEY_TYPE=13011 路况TMC数据
+     * tmc_status: 0=未知, 1=畅通, 2=缓行, 3=拥堵, 4=严重拥堵, 10=无路况
+     */
+    private void parseTmcData(Bundle b) {
+        String tmcJson = b.getString("EXTRA_TMC_SEGMENT", null);
+        if (tmcJson == null || tmcJson.isEmpty()) return;
+        try {
+            JSONObject obj = new JSONObject(tmcJson);
+            JSONArray segments = obj.optJSONArray("tmc_info");
+            if (segments == null) return;
+
+            int slowDist = 0, jamDist = 0, blockDist = 0;
+            for (int i = 0; i < segments.length(); i++) {
+                JSONObject seg = segments.getJSONObject(i);
+                String status = seg.optString("tmc_status", "0");
+                int dist = seg.optInt("tmc_segment_distance", 0);
+                switch (status) {
+                    case "2": slowDist += dist; break;   // 缓行
+                    case "3": jamDist += dist; break;    // 拥堵
+                    case "4": blockDist += dist; break;  // 严重拥堵
+                }
+            }
+            sData.tmcSlowDist = slowDist;
+            sData.tmcJamDist = jamDist;
+            sData.tmcBlockDist = blockDist;
+
+            Log.d(TAG, "TMC路况 缓行:" + slowDist + "m 拥堵:" + jamDist + "m 严重:" + blockDist + "m");
+        } catch (Exception e) {
+            Log.w(TAG, "TMC解析失败", e);
+        }
     }
 }
