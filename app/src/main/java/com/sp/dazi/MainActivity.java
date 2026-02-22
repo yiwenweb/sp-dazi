@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -51,7 +52,8 @@ public class MainActivity extends AppCompatActivity {
 
     // Views
     private WebView wvVideo;
-    private TextView tvVideoHint;
+    private View tvVideoHint;
+    private View statusDot;
     private TextView tvConnectionState, tvC3Ip, tvPacketCount;
     private TextView tvNaviInfo, tvRoadName, tvSpeedLimit;
     private TextView tvSdiInfo, tvTbtInfo, tvGpsInfo, tvDebugInfo;
@@ -147,6 +149,7 @@ public class MainActivity extends AppCompatActivity {
     private void initViews() {
         wvVideo = findViewById(R.id.wv_video);
         tvVideoHint = findViewById(R.id.tv_video_hint);
+        statusDot = findViewById(R.id.status_dot);
         tvConnectionState = findViewById(R.id.tv_connection_state);
         tvC3Ip = findViewById(R.id.tv_c3_ip);
         tvPacketCount = findViewById(R.id.tv_packet_count);
@@ -246,17 +249,17 @@ public class MainActivity extends AppCompatActivity {
                     final String tlightSecText;
                     switch (tlight) {
                         case "red":
-                            tlightColor = 0xFFFF4444;
+                            tlightColor = 0xFFFF5252;
                             tlightVisible = true;
                             tlightSecText = tlightCountdown > 0 ? String.valueOf(tlightCountdown) : "";
                             break;
                         case "green":
-                            tlightColor = 0xFF44FF44;
+                            tlightColor = 0xFF00E5A0;
                             tlightVisible = true;
                             tlightSecText = tlightCountdown > 0 ? String.valueOf(tlightCountdown) : "";
                             break;
                         case "yellow":
-                            tlightColor = 0xFFFFDD00;
+                            tlightColor = 0xFFFFB74D;
                             tlightVisible = true;
                             tlightSecText = tlightCountdown > 0 ? String.valueOf(tlightCountdown) : "";
                             break;
@@ -291,7 +294,7 @@ public class MainActivity extends AppCompatActivity {
                     uiHandler.post(() -> {
                         tvHudSpeed.setText(String.valueOf(speedKph));
                         tvHudCruise.setText(cruiseKph > 0 ? String.valueOf(cruiseKph) : "--");
-                        tvHudCruise.setTextColor(cruiseKph > 0 ? 0xFF4CAF50 : 0xFF999999);
+                        tvHudCruise.setTextColor(cruiseKph > 0 ? 0xFF00E5A0 : 0x66FFFFFF);
                         tvHudGear.setText(gear);
                         tvHudGap.setText(gapDots.toString());
                         // 红绿灯
@@ -404,7 +407,8 @@ public class MainActivity extends AppCompatActivity {
         bindService(intent, serviceConnection, BIND_AUTO_CREATE);
         serviceRunning = true;
         btnStartStop.setText("停止服务");
-        btnStartStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFF44336));
+        btnStartStop.setBackgroundResource(R.drawable.btn_stop);
+        btnStartStop.setTextColor(0xFFFFFFFF);
         Toast.makeText(this, "服务已启动", Toast.LENGTH_SHORT).show();
     }
 
@@ -419,9 +423,11 @@ public class MainActivity extends AppCompatActivity {
         videoLoaded = false;
         disconnectCarStateWs();
         btnStartStop.setText("启动服务");
-        btnStartStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF4CAF50));
+        btnStartStop.setBackgroundResource(R.drawable.btn_primary);
+        btnStartStop.setTextColor(0xFF0D0D1A);
         tvConnectionState.setText("未启动");
-        tvConnectionState.setTextColor(0xFF999999);
+        tvConnectionState.setTextColor(0x66FFFFFF);
+        setStatusDotColor(0x66FFFFFF);
         tvVideoHint.setVisibility(View.VISIBLE);
         hudOverlay.setVisibility(View.GONE);
         wvVideo.loadUrl("about:blank");
@@ -447,19 +453,34 @@ public class MainActivity extends AppCompatActivity {
     private void updateConnectionUI(BridgeService.ConnectionState state, String c3Ip) {
         switch (state) {
             case SEARCHING:
-                tvConnectionState.setText("🔍 搜索中...");
-                tvConnectionState.setTextColor(0xFFFF9800);
+                tvConnectionState.setText("搜索中...");
+                tvConnectionState.setTextColor(0xFFFFB74D);
+                setStatusDotColor(0xFFFFB74D);
                 break;
             case CONNECTED:
-                tvConnectionState.setText("✅ 已连接");
-                tvConnectionState.setTextColor(0xFF4CAF50);
+                tvConnectionState.setText("已连接");
+                tvConnectionState.setTextColor(0xFF00E5A0);
+                setStatusDotColor(0xFF00E5A0);
                 break;
             case DISCONNECTED:
-                tvConnectionState.setText("❌ 断开");
-                tvConnectionState.setTextColor(0xFFF44336);
+                tvConnectionState.setText("断开");
+                tvConnectionState.setTextColor(0xFFFF5252);
+                setStatusDotColor(0xFFFF5252);
                 break;
         }
         tvC3Ip.setText(c3Ip != null ? c3Ip : "");
+    }
+
+    private void setStatusDotColor(int color) {
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(color);
+        dot.setSize(dp(8), dp(8));
+        statusDot.setBackground(dot);
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density);
     }
 
     private void updateNaviDataUI() {
@@ -473,12 +494,14 @@ public class MainActivity extends AppCompatActivity {
         boolean fresh = (System.currentTimeMillis() - lastUpdate) < 5000;
 
         if (lastUpdate == 0) {
-            tvNaviInfo.setText("等待高德导航数据... (" + recvCount + ")");
+            tvNaviInfo.setText("等待数据...");
+            tvNaviInfo.setTextColor(0xFFFFB74D);
         } else if (!fresh) {
-            tvNaviInfo.setText("数据过期 (" + ((System.currentTimeMillis() - lastUpdate) / 1000) + "s前)");
+            tvNaviInfo.setText("过期 " + ((System.currentTimeMillis() - lastUpdate) / 1000) + "s");
+            tvNaviInfo.setTextColor(0xFFFF5252);
         } else {
-            tvNaviInfo.setText("数据正常 (" + recvCount + "条)");
-            tvNaviInfo.setTextColor(0xFF4CAF50);
+            tvNaviInfo.setText("正常 (" + recvCount + ")");
+            tvNaviInfo.setTextColor(0xFF00E5A0);
         }
 
         tvRoadName.setText(data.szPosRoadName.isEmpty() ? "--" : data.szPosRoadName);

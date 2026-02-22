@@ -3,9 +3,11 @@
     <style name="Theme.SPDazi" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/primary</item>
         <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorPrimaryVariant">@color/primary_variant</item>
         <item name="colorAccent">@color/accent</item>
         <item name="android:windowBackground">@color/background</item>
-        <item name="android:statusBarColor">@color/primary_dark</item>
-        <item name="android:navigationBarColor">@color/primary_dark</item>
+        <item name="android:statusBarColor">#00000000</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:windowTranslucentStatus">true</item>
     </style>
 </resources>

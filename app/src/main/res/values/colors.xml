@@ -1,10 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#FF2196F3</color>
-    <color name="primary_dark">#FF1A1A2E</color>
-    <color name="accent">#FF4CAF50</color>
-    <color name="background">#FF1A1A2E</color>
-    <color name="card_bg">#FF252540</color>
+    <!-- 主色调：深蓝紫渐变系 -->
+    <color name="primary">#FF6C63FF</color>
+    <color name="primary_dark">#FF0D0D1A</color>
+    <color name="primary_variant">#FF5A52E0</color>
+    <color name="accent">#FF00E5A0</color>
+    <color name="accent_warm">#FFFFB74D</color>
+
+    <!-- 背景 -->
+    <color name="background">#FF0D0D1A</color>
+    <color name="background_card">#1AFFFFFF</color>
+    <color name="background_card_solid">#FF1A1A2E</color>
+    <color name="surface">#FF16162B</color>
+
+    <!-- 文字 -->
     <color name="text_primary">#FFFFFFFF</color>
-    <color name="text_secondary">#99FFFFFF</color>
+    <color name="text_secondary">#B3FFFFFF</color>
+    <color name="text_hint">#66FFFFFF</color>
+
+    <!-- 状态色 -->
+    <color name="status_connected">#FF00E5A0</color>
+    <color name="status_searching">#FFFFB74D</color>
+    <color name="status_disconnected">#FFFF5252</color>
+    <color name="status_idle">#66FFFFFF</color>
+
+    <!-- HUD -->
+    <color name="hud_speed">#FFFFFFFF</color>
+    <color name="hud_cruise">#FF00E5A0</color>
+    <color name="hud_gear">#FFFFB74D</color>
+    <color name="hud_gap">#FF6C63FF</color>
+
+    <!-- 按钮 -->
+    <color name="btn_start">#FF00E5A0</color>
+    <color name="btn_stop">#FFFF5252</color>
+    <color name="btn_connect">#FF6C63FF</color>
+    <color name="btn_secondary">#33FFFFFF</color>
 </resources>
