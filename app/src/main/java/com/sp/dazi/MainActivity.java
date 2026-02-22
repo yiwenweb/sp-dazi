@@ -62,7 +62,8 @@ public class MainActivity extends AppCompatActivity {
     // HUD views
     private TextView tvHudSpeed, tvHudCruise, tvHudGear, tvHudGap;
     private TextView tvHudTlight, tvHudTlightSec;
-    private LinearLayout hudTlight;
+    private LinearLayout hudTlight, hudNaviBar;
+    private TextView tvHudRoad, tvHudRemain;
 
     // WebSocket for carstate
     private OkHttpClient wsClient;
@@ -172,6 +173,9 @@ public class MainActivity extends AppCompatActivity {
         tvHudTlight = findViewById(R.id.tv_hud_tlight);
         tvHudTlightSec = findViewById(R.id.tv_hud_tlight_sec);
         hudTlight = findViewById(R.id.hud_tlight);
+        hudNaviBar = findViewById(R.id.hud_navi_bar);
+        tvHudRoad = findViewById(R.id.tv_hud_road);
+        tvHudRemain = findViewById(R.id.tv_hud_remain);
 
         // WebView 设置
         WebSettings ws = wvVideo.getSettings();
@@ -223,6 +227,9 @@ public class MainActivity extends AppCompatActivity {
                     int tfGap = j.optInt("tfGap", 2);
                     String tlight = j.optString("tlight", "off");
                     int tlightCountdown = j.optInt("tlightCountdown", 0);
+                    String naviRoad = j.optString("naviRoad", "");
+                    int naviRemainDist = j.optInt("naviRemainDist", 0);
+                    int naviRemainTime = j.optInt("naviRemainTime", 0);
 
                     int speedKph = (int) Math.round(vEgo * 3.6);
                     int cruiseKph = (int) Math.round(vSet);
@@ -260,6 +267,27 @@ public class MainActivity extends AppCompatActivity {
                             break;
                     }
 
+                    // 导航剩余信息格式化
+                    final String remainText;
+                    if (naviRemainDist > 0) {
+                        String distStr = naviRemainDist >= 1000
+                            ? String.format("%.1fkm", naviRemainDist / 1000.0)
+                            : naviRemainDist + "m";
+                        String timeStr = "";
+                        if (naviRemainTime > 0) {
+                            int mins = naviRemainTime / 60;
+                            if (mins >= 60) {
+                                timeStr = String.format(" %dh%dmin", mins / 60, mins % 60);
+                            } else {
+                                timeStr = " " + mins + "min";
+                            }
+                        }
+                        remainText = distStr + timeStr;
+                    } else {
+                        remainText = "";
+                    }
+                    final String roadText = naviRoad;
+
                     uiHandler.post(() -> {
                         tvHudSpeed.setText(String.valueOf(speedKph));
                         tvHudCruise.setText(cruiseKph > 0 ? String.valueOf(cruiseKph) : "--");
@@ -270,6 +298,14 @@ public class MainActivity extends AppCompatActivity {
                         hudTlight.setVisibility(tlightVisible ? View.VISIBLE : View.GONE);
                         tvHudTlight.setTextColor(tlightColor);
                         tvHudTlightSec.setText(tlightSecText);
+                        // 导航信息条
+                        if (!roadText.isEmpty() || !remainText.isEmpty()) {
+                            hudNaviBar.setVisibility(View.VISIBLE);
+                            tvHudRoad.setText(roadText);
+                            tvHudRemain.setText(remainText);
+                        } else {
+                            hudNaviBar.setVisibility(View.GONE);
+                        }
                     });
                 } catch (Exception e) {
                     Log.w(TAG, "解析 carstate 失败", e);
