@@ -115,13 +115,102 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <!-- 状态指示器 (视频右上角小圆点) -->
+        <LinearLayout
+            android:id="@+id/hud_status_dots"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="34dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:background="@drawable/hud_pill"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <!-- 高德数据 -->
+            <TextView
+                android:id="@+id/dot_navi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textSize="8sp"
+                android:textColor="#66FFFFFF"
+                android:paddingEnd="2dp" />
+            <TextView
+                android:id="@+id/dot_navi_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="导航"
+                android:textSize="8sp"
+                android:textColor="#88FFFFFF"
+                android:paddingEnd="6dp" />
+
+            <!-- C3 连接 -->
+            <TextView
+                android:id="@+id/dot_c3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textSize="8sp"
+                android:textColor="#66FFFFFF"
+                android:paddingEnd="2dp" />
+            <TextView
+                android:id="@+id/dot_c3_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="C3"
+                android:textSize="8sp"
+                android:textColor="#88FFFFFF"
+                android:paddingEnd="6dp" />
+
+            <!-- WebSocket -->
+            <TextView
+                android:id="@+id/dot_ws"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textSize="8sp"
+                android:textColor="#66FFFFFF"
+                android:paddingEnd="2dp" />
+            <TextView
+                android:id="@+id/dot_ws_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WS"
+                android:textSize="8sp"
+                android:textColor="#88FFFFFF"
+                android:paddingEnd="6dp" />
+
+            <!-- 视频流 -->
+            <TextView
+                android:id="@+id/dot_video"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textSize="8sp"
+                android:textColor="#66FFFFFF"
+                android:paddingEnd="2dp" />
+            <TextView
+                android:id="@+id/dot_video_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="视频"
+                android:textSize="8sp"
+                android:textColor="#88FFFFFF" />
+        </LinearLayout>
+
         <!-- Feature 8: 行程统计条 (顶部右侧) -->
         <LinearLayout
             android:id="@+id/hud_trip_bar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|end"
-            android:layout_marginTop="50dp"
+            android:layout_marginTop="54dp"
             android:layout_marginEnd="10dp"
             android:orientation="horizontal"
             android:paddingStart="10dp"

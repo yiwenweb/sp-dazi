@@ -97,6 +97,10 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout hudLaneBar;
     private TextView tvHudLaneIcon, tvHudLaneText, tvHudLaneDetail;
 
+    // 状态指示器
+    private LinearLayout hudStatusDots;
+    private TextView dotNavi, dotC3, dotWs, dotVideo;
+
     // Feature 7: 超速提醒
     private Vibrator vibrator;
     private boolean overspeedAlerted = false;
@@ -117,6 +121,8 @@ public class MainActivity extends AppCompatActivity {
     private OkHttpClient wsClient;
     private WebSocket carStateWs;
     private boolean wsConnected = false;
+    private long lastWsMessageTime = 0;  // 最后收到 WS 消息的时间
+    private Runnable wsHeartbeatRunnable;  // WS 心跳检测
 
     private BridgeService bridgeService;
     private boolean serviceBound = false;
@@ -179,12 +185,48 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         startUIUpdate();
+        // 切回前台时检查连接状态，必要时重连
+        checkAndReconnect();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         stopUIUpdate();
+    }
+
+    /** 切回前台时检查 WebSocket 和视频流，断了就重连 */
+    private void checkAndReconnect() {
+        if (!serviceRunning || bridgeService == null) return;
+        String ip = bridgeService.getC3IpAddress();
+        if (ip == null) return;
+
+        // WebSocket 断了就重连
+        if (!wsConnected) {
+            Log.i(TAG, "onResume: WebSocket 断开，重连中...");
+            disconnectCarStateWs();
+            connectCarStateWs(ip);
+        }
+
+        // 视频流断了就重新加载（WebView 切后台后 MJPEG 流可能断开）
+        if (videoLoaded && wvVideo != null) {
+            // 通过 JS 检查图片是否还在加载，如果不是就重新加载
+            wvVideo.evaluateJavascript(
+                "(function() {" +
+                "  var img = document.querySelector('img');" +
+                "  if (!img || img.naturalWidth === 0) return 'dead';" +
+                "  return 'alive';" +
+                "})()",
+                value -> {
+                    if (value != null && value.contains("dead")) {
+                        Log.i(TAG, "onResume: 视频流断开，重新加载");
+                        uiHandler.post(() -> {
+                            videoLoaded = false;
+                            loadVideo(ip);
+                        });
+                    }
+                });
+        }
     }
 
     @Override
@@ -272,6 +314,13 @@ public class MainActivity extends AppCompatActivity {
         // Feature 7
         vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
 
+        // 状态指示器
+        hudStatusDots = findViewById(R.id.hud_status_dots);
+        dotNavi = findViewById(R.id.dot_navi);
+        dotC3 = findViewById(R.id.dot_c3);
+        dotWs = findViewById(R.id.dot_ws);
+        dotVideo = findViewById(R.id.dot_video);
+
         // WebView 设置
         WebSettings ws = wvVideo.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -339,12 +388,17 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onOpen(WebSocket ws, Response response) {
                 wsConnected = true;
+                lastWsMessageTime = System.currentTimeMillis();
                 Log.i(TAG, "CarState WebSocket 已连接");
-                uiHandler.post(() -> hudOverlay.setVisibility(View.VISIBLE));
+                uiHandler.post(() -> {
+                    hudOverlay.setVisibility(View.VISIBLE);
+                    startWsHeartbeat();
+                });
             }
 
             @Override
             public void onMessage(WebSocket ws, String text) {
+                lastWsMessageTime = System.currentTimeMillis();
                 try {
                     JSONObject j = new JSONObject(text);
                     double vEgo = j.optDouble("vEgo", 0);
@@ -503,9 +557,41 @@ public class MainActivity extends AppCompatActivity {
 
     private void disconnectCarStateWs() {
         wsConnected = false;
+        stopWsHeartbeat();
         if (carStateWs != null) {
             carStateWs.cancel();
             carStateWs = null;
+        }
+    }
+
+    /** 启动 WebSocket 心跳检测：每 5 秒检查是否收到消息，超过 10 秒没消息就重连 */
+    private void startWsHeartbeat() {
+        stopWsHeartbeat();
+        wsHeartbeatRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!wsConnected) return;
+                long elapsed = System.currentTimeMillis() - lastWsMessageTime;
+                if (elapsed > 10000) {
+                    Log.w(TAG, "WebSocket 心跳超时 (" + elapsed + "ms)，重连...");
+                    disconnectCarStateWs();
+                    if (serviceBound && bridgeService != null) {
+                        String ip = bridgeService.getC3IpAddress();
+                        if (ip != null) connectCarStateWs(ip);
+                    }
+                } else {
+                    uiHandler.postDelayed(this, 5000);
+                }
+            }
+        };
+        uiHandler.postDelayed(wsHeartbeatRunnable, 5000);
+    }
+
+    /** 停止 WebSocket 心跳检测 */
+    private void stopWsHeartbeat() {
+        if (wsHeartbeatRunnable != null) {
+            uiHandler.removeCallbacks(wsHeartbeatRunnable);
+            wsHeartbeatRunnable = null;
         }
     }
 
@@ -676,10 +762,46 @@ public class MainActivity extends AppCompatActivity {
         return (int) (value * getResources().getDisplayMetrics().density);
     }
 
+    /** 更新视频右上角状态指示器小圆点 */
+    private void updateStatusDots() {
+        if (hudStatusDots == null) return;
+
+        // 只在服务运行时显示
+        if (!serviceRunning) {
+            hudStatusDots.setVisibility(View.GONE);
+            return;
+        }
+        hudStatusDots.setVisibility(View.VISIBLE);
+
+        int green = 0xFF00E5A0;
+        int red = 0xFFFF5252;
+        int gray = 0x66FFFFFF;
+
+        // 1. 高德导航数据
+        long lastNavi = AmapNaviReceiver.getLastUpdateTime();
+        boolean naviFresh = lastNavi > 0 && (System.currentTimeMillis() - lastNavi) < 5000;
+        dotNavi.setTextColor(naviFresh ? green : (lastNavi > 0 ? red : gray));
+
+        // 2. C3 连接
+        boolean c3Ok = serviceBound && bridgeService != null
+            && bridgeService.getConnectionState() == BridgeService.ConnectionState.CONNECTED;
+        dotC3.setTextColor(c3Ok ? green : red);
+
+        // 3. WebSocket
+        boolean wsOk = wsConnected && (System.currentTimeMillis() - lastWsMessageTime) < 5000;
+        dotWs.setTextColor(wsOk ? green : (wsConnected ? red : gray));
+
+        // 4. 视频流
+        dotVideo.setTextColor(videoLoaded ? green : gray);
+    }
+
     private void updateNaviDataUI() {
         if (serviceBound && bridgeService != null) {
             tvPacketCount.setText(String.valueOf(bridgeService.getPacketCount()));
         }
+
+        // 更新状态指示器
+        updateStatusDots();
 
         NaviData data = AmapNaviReceiver.getCurrentData();
         long lastUpdate = AmapNaviReceiver.getLastUpdateTime();
