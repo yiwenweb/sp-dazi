@@ -191,6 +191,7 @@ private fun BoolSettingControl(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChoiceSettingControl(
     setting: C3SettingMeta,
