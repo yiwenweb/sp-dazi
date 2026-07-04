@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +32,7 @@ import com.sunnypilot.toolbox.model.AggregatedStats
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DataCenterScreen(
     sshManager: SshManager,
@@ -334,7 +336,7 @@ private fun CircularStat(label: String, percent: Int, value: String, subLabel: S
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(
-                progress = { percent / 100f },
+                progress = percent / 100f,
                 modifier = Modifier.fillMaxSize(),
                 color = color,
                 trackColor = color.copy(alpha = 0.15f),
