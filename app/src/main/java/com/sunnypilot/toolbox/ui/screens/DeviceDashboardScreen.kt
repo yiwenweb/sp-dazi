@@ -3,8 +3,10 @@ package com.sunnypilot.toolbox.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sunnypilot.toolbox.data.SshManager
@@ -23,10 +26,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun DeviceDashboardScreen(
     sshManager: SshManager,
+    onDisconnected: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var status by remember { mutableStateOf(DeviceStatus()) }
     var isLoading by remember { mutableStateOf(false) }
+    var showRebootDialog by remember { mutableStateOf(false) }
+    var showShutdownDialog by remember { mutableStateOf(false) }
+    var showErrorLog by remember { mutableStateOf(false) }
+    var errorLogText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(sshManager.isConnected()) {
@@ -41,8 +49,8 @@ fun DeviceDashboardScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        // 设备主控台大卡片
-        Column(
+        // 设备主控台
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -50,81 +58,173 @@ fun DeviceDashboardScreen(
                 .background(Panel)
                 .padding(28.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            // 左侧：标题、状态、2x2 信息卡
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Teal500)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(Teal500)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "设备主控台",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Teal500
+                    )
+                }
+
+                Text(
+                    text = "${status.name} · ${status.hardware} · ${status.software}",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Slate900
+                )
+
+                Text(
+                    text = "这里会集中展示硬件身份、CPU、温度、运行软件和稳定激活标识，适合做车机端设备总览。",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Slate600
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatusChip("已连接", status.isConnected)
+                    StatusChip("Wi-Fi", true)
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = Blue100
+                    ) {
                         Text(
-                            text = "设备主控台",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Teal500
+                            text = "密码登录",
+                            color = Blue500,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge
                         )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "${status.name} · ${status.hardware} · ${status.software}",
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = Slate900
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "这里会集中展示硬件身份、CPU、温度、运行软件和稳定激活标识，适合做车机端设备总览。",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Slate600
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        StatusChip("已连接", status.isConnected)
-                        StatusChip("Wi-Fi", true)
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = Blue100
-                        ) {
-                            Text(
-                                text = "密码登录",
-                                color = Blue500,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                        }
                     }
                 }
 
-                Column(
-                    modifier = Modifier.width(280.dp),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    InfoRow("稳定激活 ID", status.stableId)
-                    InfoRow("硬件串号", status.serial)
-                    InfoRow("连接地址", status.ipAddress)
+                // 2x2 信息卡
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionButton("重启", Teal500)
-                        ActionButton("关机", Red500)
+                        InfoCard(
+                            label = "硬件",
+                            value = status.hardware,
+                            icon = Icons.Default.Devices,
+                            iconColor = Blue500,
+                            bgColor = Blue100,
+                            modifier = Modifier.weight(1f).height(90.dp)
+                        )
+                        InfoCard(
+                            label = "CPU",
+                            value = "AArch64 Processor",
+                            icon = Icons.Default.Memory,
+                            iconColor = Teal500,
+                            bgColor = Teal50,
+                            modifier = Modifier.weight(1f).height(90.dp)
+                        )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ActionButton("强制下线", Slate600)
-                        ActionButton("错误日志", Amber500)
+                        InfoCard(
+                            label = "CPU 温度",
+                            value = "${status.cpuTemp}°C",
+                            icon = Icons.Default.Thermostat,
+                            iconColor = Amber500,
+                            bgColor = Amber100,
+                            modifier = Modifier.weight(1f).height(90.dp)
+                        )
+                        InfoCard(
+                            label = "设备温度",
+                            value = "${status.deviceTemp}°C",
+                            icon = Icons.Default.Thermostat,
+                            iconColor = Green500,
+                            bgColor = Green100,
+                            modifier = Modifier.weight(1f).height(90.dp)
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.width(28.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoCard("硬件", status.hardware, Icons.Default.Devices, Blue500, Blue100)
-                InfoCard("CPU", "AArch64 Processor", Icons.Default.Memory, Teal500, Teal50)
-                InfoCard("CPU 温度", "${status.cpuTemp}°C", Icons.Default.Thermostat, Amber500, Amber100)
-                InfoCard("设备温度", "${status.deviceTemp}°C", Icons.Default.Thermostat, Green500, Green100)
+            // 右侧：设备信息 + 操作按钮
+            Column(
+                modifier = Modifier
+                    .width(260.dp)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    InfoRow("稳定激活 ID", status.stableId)
+                    InfoRow("连接地址", status.ipAddress)
+                    InfoRow("硬件串号", status.serial)
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ActionButton(
+                            text = "重启",
+                            color = Teal500,
+                            icon = Icons.Default.Refresh,
+                            modifier = Modifier.weight(1f),
+                            onClick = { showRebootDialog = true }
+                        )
+                        ActionButton(
+                            text = "关机",
+                            color = Red500,
+                            icon = Icons.Default.PowerSettingsNew,
+                            modifier = Modifier.weight(1f),
+                            onClick = { showShutdownDialog = true }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ActionButton(
+                            text = "强制下线",
+                            color = Slate600,
+                            icon = Icons.Default.LinkOff,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                sshManager.disconnect()
+                                onDisconnected()
+                            }
+                        )
+                        ActionButton(
+                            text = "错误日志",
+                            color = Blue500,
+                            icon = Icons.Default.Description,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                scope.launch {
+                                    errorLogText = sshManager.executeCommand(
+                                        "cat /data/community/crashes/error.log 2>/dev/null || echo '暂无错误日志'"
+                                    ).getOrElse { "读取失败: ${it.message}" }
+                                    showErrorLog = true
+                                }
+                            }
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                refreshStatus(sshManager) { status = it }
+                                isLoading = false
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal500),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isLoading) "刷新中" else "刷新状态")
+                    }
+                }
             }
         }
 
@@ -154,44 +254,116 @@ fun DeviceDashboardScreen(
                         color = Slate600
                     )
                 }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isLoading = true
-                            refreshStatus(sshManager) { status = it }
-                            isLoading = false
-                        }
-                    },
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Teal500)
-                ) {
-                    Text(if (isLoading) "刷新中" else "刷新状态")
-                }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoCard("CPU 温度", "${status.cpuTemp}°C", Icons.Default.Thermostat, Amber500, Amber100)
-                InfoCard("设备温度", "${status.deviceTemp}°C", Icons.Default.Thermostat, Green500, Green100)
-                InfoCard("内存占用", "${status.memoryUsage}%", Icons.Default.Memory, Blue500, Blue100)
                 InfoCard(
-                    "openpilot 服务",
-                    if (status.openpilotService) "正常" else "异常",
-                    Icons.Default.CheckCircle,
-                    if (status.openpilotService) Green500 else Red500,
-                    if (status.openpilotService) Green100 else Red100
+                    label = "CPU 温度",
+                    value = "${status.cpuTemp}°C",
+                    icon = Icons.Default.Thermostat,
+                    iconColor = Amber500,
+                    bgColor = Amber100,
+                    modifier = Modifier.weight(1f).height(100.dp)
                 )
                 InfoCard(
-                    "Panda 通信",
-                    if (status.pandaComm) "正常" else "异常",
-                    Icons.Default.Usb,
-                    if (status.pandaComm) Green500 else Red500,
-                    if (status.pandaComm) Green100 else Red100
+                    label = "设备温度",
+                    value = "${status.deviceTemp}°C",
+                    icon = Icons.Default.Thermostat,
+                    iconColor = Green500,
+                    bgColor = Green100,
+                    modifier = Modifier.weight(1f).height(100.dp)
+                )
+                InfoCard(
+                    label = "BMS 温度",
+                    value = "${status.bmsTemp}°C",
+                    icon = Icons.Default.BatteryFull,
+                    iconColor = Blue500,
+                    bgColor = Blue100,
+                    modifier = Modifier.weight(1f).height(100.dp)
                 )
             }
         }
     }
+
+    if (showRebootDialog) {
+        ConfirmDialog(
+            title = "确认重启",
+            text = "确定要立即重启 C3 吗？",
+            confirm = "重启",
+            onConfirm = {
+                showRebootDialog = false
+                scope.launch { sshManager.executeCommand("sudo reboot") }
+            },
+            onDismiss = { showRebootDialog = false }
+        )
+    }
+
+    if (showShutdownDialog) {
+        ConfirmDialog(
+            title = "确认关机",
+            text = "确定要立即关闭 C3 吗？",
+            confirm = "关机",
+            onConfirm = {
+                showShutdownDialog = false
+                scope.launch { sshManager.executeCommand("sudo poweroff") }
+                sshManager.disconnect()
+                onDisconnected()
+            },
+            onDismiss = { showShutdownDialog = false }
+        )
+    }
+
+    if (showErrorLog) {
+        AlertDialog(
+            onDismissRequest = { showErrorLog = false },
+            title = { Text("错误日志") },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(errorLogText)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showErrorLog = false }) {
+                    Text("关闭")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    text: String,
+    confirm: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = Red500)
+            ) {
+                Text(confirm)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @Composable
@@ -206,19 +378,33 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color) {
+private fun ActionButton(
+    text: String,
+    color: androidx.compose.ui.graphics.Color,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = color.copy(alpha = 0.1f),
-        modifier = Modifier.clickable {}
+        modifier = modifier
+            .height(40.dp)
+            .clickable(onClick = onClick)
     ) {
-        Text(
-            text = text,
-            color = color,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = text,
+                color = color,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
@@ -226,16 +412,15 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
 private fun RowScope.InfoCard(
     label: String,
     value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     iconColor: androidx.compose.ui.graphics.Color,
-    bgColor: androidx.compose.ui.graphics.Color
+    bgColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = bgColor,
-        modifier = Modifier
-            .weight(1f)
-            .aspectRatio(1.6f)
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -270,6 +455,7 @@ private suspend fun refreshStatus(sshManager: SshManager, onResult: (DeviceStatu
                 hardware = data["hardware"] ?: "comma three",
                 cpuTemp = data["cpuTemp"]?.toFloatOrNull()?.div(1000f) ?: 0f,
                 deviceTemp = data["deviceTemp"]?.toFloatOrNull()?.div(1000f) ?: 0f,
+                bmsTemp = data["bmsTemp"]?.toFloatOrNull()?.div(1000f) ?: 0f,
                 memoryUsage = memoryUsage,
                 storageFree = data["storageFree"] ?: "--",
                 serial = data["serial"] ?: "unknown",

@@ -135,6 +135,7 @@ class SshManager {
             "cat /proc/cpuinfo | grep 'Hardware' | head -1",
             "cat /sys/class/thermal/thermal_zone0/temp",
             "cat /sys/class/thermal/thermal_zone1/temp",
+            "cat /sys/class/power_supply/bms/temp 2>/dev/null || echo 0",
             "free -m | grep Mem | awk '{print $3\" \"$2}'",
             "df -h /data | tail -1 | awk '{print $4}'",
             "cat /proc/sys/kernel/hostname",
@@ -149,12 +150,13 @@ class SshManager {
                 "hardware" to (parts.getOrNull(0)?.substringAfter("Hardware\t: ")?.trim() ?: "comma three"),
                 "cpuTemp" to (parts.getOrNull(1) ?: "0"),
                 "deviceTemp" to (parts.getOrNull(2) ?: "0"),
-                "memory" to (parts.getOrNull(3) ?: "0 1"),
-                "storageFree" to (parts.getOrNull(4) ?: "--"),
-                "hostname" to (parts.getOrNull(5) ?: ""),
-                "serial" to (parts.getOrNull(6) ?: "unknown"),
-                "dongleId" to (parts.getOrNull(7) ?: "unknown"),
-                "openpilotProcesses" to (parts.getOrNull(8) ?: "0")
+                "bmsTemp" to (parts.getOrNull(3) ?: "0"),
+                "memory" to (parts.getOrNull(4) ?: "0 1"),
+                "storageFree" to (parts.getOrNull(5) ?: "--"),
+                "hostname" to (parts.getOrNull(6) ?: ""),
+                "serial" to (parts.getOrNull(7) ?: "unknown"),
+                "dongleId" to (parts.getOrNull(8) ?: "unknown"),
+                "openpilotProcesses" to (parts.getOrNull(9) ?: "0")
             )
         }
     }

@@ -84,14 +84,26 @@ fun MainScreen(
                         onConnected = onConnected
                     )
                 } else {
+                    val onDisconnected = {
+                        sshManager.disconnect()
+                        isConnected = false
+                        selectedNav = NavItem.Connection
+                    }
+
                     when (selectedNav) {
                         NavItem.Connection -> ConnectionScreen(
                             sshManager = sshManager,
                             repository = configRepository,
                             onConnected = { isConnected = true }
                         )
-                        NavItem.Device -> DeviceDashboardScreen(sshManager = sshManager)
-                        else -> DeviceDashboardScreen(sshManager = sshManager)
+                        NavItem.Device -> DeviceDashboardScreen(
+                            sshManager = sshManager,
+                            onDisconnected = onDisconnected
+                        )
+                        else -> DeviceDashboardScreen(
+                            sshManager = sshManager,
+                            onDisconnected = onDisconnected
+                        )
                     }
                 }
             }
