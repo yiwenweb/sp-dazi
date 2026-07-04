@@ -1,6 +1,7 @@
 package com.sunnypilot.toolbox.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -42,4 +43,5 @@ fun C3SettingMeta.valueAsBooleanIndex(): Int = if (valueAsBoolean()) 1 else 0
 
 fun C3SettingMeta.valueAsChoiceIndex(): Int = valueAsInt().coerceIn(0, (choices?.size ?: 1) - 1)
 
-fun List<C3SettingMeta>.asJson(): String = Json.encodeToString(this)
+fun List<C3SettingMeta>.asJson(): String =
+    Json.encodeToString(ListSerializer(C3SettingMeta.serializer()), this)

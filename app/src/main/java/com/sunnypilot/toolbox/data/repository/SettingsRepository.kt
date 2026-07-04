@@ -4,6 +4,7 @@ import android.util.Log
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.model.C3SettingMeta
 import com.sunnypilot.toolbox.model.C3SettingResult
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 class SettingsRepository(
@@ -19,7 +20,7 @@ class SettingsRepository(
         return sshManager.executeCommand(
             "cd /data/openpilot && python c3_scripts/settings_bridge.py list"
         ).mapCatching { output ->
-            json.decodeFromString(output)
+            json.decodeFromString(ListSerializer(C3SettingMeta.serializer()), output)
         }
     }
 
@@ -27,7 +28,7 @@ class SettingsRepository(
         return sshManager.executeCommand(
             "cd /data/openpilot && python c3_scripts/settings_bridge.py set $key $value"
         ).mapCatching { output ->
-            json.decodeFromString(output)
+            json.decodeFromString(C3SettingResult.serializer(), output)
         }
     }
 }
