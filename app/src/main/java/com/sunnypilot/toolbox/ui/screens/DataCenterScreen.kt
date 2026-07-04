@@ -1,0 +1,466 @@
+package com.sunnypilot.toolbox.ui.screens
+
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.sunnypilot.toolbox.data.SshManager
+import com.sunnypilot.toolbox.data.repository.DriveStatsRepository
+import com.sunnypilot.toolbox.model.AggregatedStats
+import com.sunnypilot.toolbox.ui.theme.*
+import kotlinx.coroutines.launch
+
+@Composable
+fun DataCenterScreen(
+    sshManager: SshManager,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = remember { DriveStatsRepository(context, sshManager) }
+
+    var stats by remember { mutableStateOf<AggregatedStats?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var autoRefresh by remember { mutableStateOf(true) }
+    var showDateDialog by remember { mutableStateOf(false) }
+    var startDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).first) }
+    var endDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).second) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                repository.importFromJson(context, it).fold(
+                    onSuccess = { count ->
+                        Toast.makeText(context, "导入 $count 条记录", Toast.LENGTH_SHORT).show()
+                        loadStats()
+                    },
+                    onFailure = { e ->
+                        Toast.makeText(context, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+        }
+    }
+
+    fun loadStats() {
+        scope.launch {
+            val data = repository.aggregate(startDate, endDate)
+            stats = data
+        }
+    }
+
+    fun syncFromDevice() {
+        scope.launch {
+            isLoading = true
+            repository.syncFromDevice().fold(
+                onSuccess = { count ->
+                    if (count > 0) {
+                        Toast.makeText(context, "同步 $count 条记录", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "已同步，无新数据", Toast.LENGTH_SHORT).show()
+                    }
+                    loadStats()
+                },
+                onFailure = { e ->
+                    Toast.makeText(context, "同步失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            )
+            isLoading = false
+        }
+    }
+
+    fun exportStats() {
+        scope.launch {
+            val uri = repository.exportToJson(context, startDate, endDate)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "导出驾驶数据"))
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        // 首次没有数据时插入示例数据，方便看效果
+        val all = repository.getAll()
+        if (all.isEmpty()) {
+            repository.insertSampleData()
+        }
+        loadStats()
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // 总报
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Panel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("总报", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+                        Text(
+                            "统计起点 $startDate 22:05",
+                            fontSize = 12.sp,
+                            color = Slate500
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("实时更新", fontSize = 13.sp, color = Slate600)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Switch(
+                            checked = autoRefresh,
+                            onCheckedChange = { autoRefresh = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Teal500,
+                                checkedTrackColor = Teal100
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = { loadStats() }, enabled = !isLoading) {
+                            Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = Teal500)
+                        }
+                        IconButton(onClick = { syncFromDevice() }, enabled = !isLoading) {
+                            Icon(Icons.Default.Build, contentDescription = "修复", tint = Slate600)
+                        }
+                        IconButton(onClick = { exportStats() }) {
+                            Icon(Icons.Default.Share, contentDescription = "导出", tint = Slate600)
+                        }
+                        IconButton(onClick = { importLauncher.launch("application/json") }) {
+                            Icon(Icons.Default.FileDownload, contentDescription = "导入", tint = Slate600)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val s = stats ?: AggregatedStats(
+                    startDate = startDate,
+                    totalDistanceKm = 0f,
+                    assistedDistanceKm = 0f,
+                    manualDistanceKm = 0f,
+                    assistedPercent = 0,
+                    manualPercent = 0,
+                    durationMinutes = 0,
+                    durationRatioPercent = 0,
+                    safetyScore = 0,
+                    takeovers = 0,
+                    collisionWarning = 0,
+                    tailgating = 0,
+                    leadCarStationary = 0,
+                    leadCarEmergencyBrake = 0,
+                    leadCarSlow = 0,
+                    startReminder = 0,
+                    laneChangeAssist = 0
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    CircularStat("占总里程", s.assistedPercent, "${s.assistedDistanceKm} km", "驾驶辅助里程", Teal500)
+                    CircularStat("人工占比", s.manualPercent, "${s.manualDistanceKm} km", "人工驾驶里程", Blue500)
+                    CircularStat("占行驶时长", s.durationRatioPercent, formatDuration(s.durationMinutes), "智驾辅助时长", Amber500)
+                    CircularStat("安全评分", s.safetyScore, "${s.safetyScore} 分", "安全评分", Color(0xFFF59E0B))
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val items = listOf(
+                    Triple("接管次数", s.takeovers.toString(), Red500),
+                    Triple("碰撞预警", s.collisionWarning.toString(), Red500),
+                    Triple("跟车过近", s.tailgating.toString(), Amber500),
+                    Triple("前车静止", s.leadCarStationary.toString(), Blue500),
+                    Triple("前车急刹", s.leadCarEmergencyBrake.toString(), Red500),
+                    Triple("前车龟速", s.leadCarSlow.toString(), Blue500),
+                    Triple("起步提醒", s.startReminder.toString(), Teal500),
+                    Triple("变道辅助", s.laneChangeAssist.toString(), Blue500)
+                )
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items.forEach { (title, value, color) ->
+                        AlertCard(title, value, color)
+                    }
+                }
+            }
+        }
+
+        // ADS 里程
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Panel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("ADS 里程", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+                        Text("辅助驾驶与人工驾驶里程分布", fontSize = 12.sp, color = Slate500)
+                    }
+                    Row {
+                        IconButton(onClick = { exportStats() }) {
+                            Icon(Icons.Default.Share, contentDescription = "分享", tint = Slate600)
+                        }
+                        IconButton(onClick = { showDateDialog = true }) {
+                            Icon(Icons.Default.CalendarMonth, contentDescription = "排行", tint = Slate600)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val s2 = stats
+                if (s2 != null && s2.totalDistanceKm > 0) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(160.dp), contentAlignment = Alignment.Center) {
+                            CanvasRing(
+                                assisted = s2.assistedDistanceKm,
+                                manual = s2.manualDistanceKm,
+                                total = s2.totalDistanceKm
+                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${s2.totalDistanceKm}", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Slate900)
+                                Text("总里程(公里)", fontSize = 11.sp, color = Slate500)
+                                Text("智驾 ${s2.assistedPercent}%\n车主 ${s2.manualPercent}%", fontSize = 10.sp, color = Slate500)
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(24.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LegendItem(Teal500, "智驾辅助里程", "${s2.assistedDistanceKm} 公里")
+                            LegendItem(Blue500, "驾驶员里程", "${s2.manualDistanceKm} 公里")
+                            LegendItem(Slate600, "总里程", "${s2.totalDistanceKm} 公里")
+                        }
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                        Text("暂无里程数据，点击刷新或同步", color = Slate500)
+                    }
+                }
+            }
+        }
+
+        // 驾驶效率
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Panel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("驾驶效率", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+                Text("里程、时长和速度的核心效率指标", fontSize = 12.sp, color = Slate500)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val s3 = stats
+                val efficiencyItems = listOf(
+                    Triple("单次最长", "${s3?.longestSingleDistanceKm ?: 0f} km", Amber500),
+                    Triple("连续 OP", formatDuration(s3?.continuousOpMinutes ?: 0), Teal500),
+                    Triple("千公里接管", "${s3?.takeoversPerKkm ?: 0f}", Red500),
+                    Triple("平均速度", "${s3?.avgSpeedKmh ?: 0f} km/h", Blue500),
+                    Triple("最高速度", "${s3?.maxSpeedKmh ?: 0f} km/h", Blue500),
+                    Triple("总时长", formatDuration(s3?.durationMinutes ?: 0), Amber500)
+                )
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    efficiencyItems.forEach { (title, value, color) ->
+                        MetricCard(title, value, color)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDateDialog) {
+        DateRangeDialog(
+            initialStart = startDate,
+            initialEnd = endDate,
+            onDismiss = { showDateDialog = false },
+            onConfirm = { s, e ->
+                startDate = s
+                endDate = e
+                showDateDialog = false
+                loadStats()
+            }
+        )
+    }
+}
+
+@Composable
+private fun CircularStat(label: String, percent: Int, value: String, subLabel: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(
+                progress = { percent / 100f },
+                modifier = Modifier.fillMaxSize(),
+                color = color,
+                trackColor = color.copy(alpha = 0.15f),
+                strokeWidth = 6.dp,
+                strokeCap = StrokeCap.Round
+            )
+            Text("$percent%", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Slate900)
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Slate900)
+        Text(subLabel, fontSize = 11.sp, color = Slate500)
+    }
+}
+
+@Composable
+private fun AlertCard(title: String, value: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = color.copy(alpha = 0.08f),
+        modifier = Modifier.width(100.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+            Text(title, fontSize = 11.sp, color = Slate600)
+        }
+    }
+}
+
+@Composable
+private fun MetricCard(title: String, value: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = color.copy(alpha = 0.08f),
+        modifier = Modifier.width(120.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+            Text(title, fontSize = 11.sp, color = Slate600)
+        }
+    }
+}
+
+@Composable
+private fun CanvasRing(assisted: Float, manual: Float, total: Float) {
+    val assistedSweep = if (total > 0) (assisted / total) * 360f else 0f
+    val manualSweep = if (total > 0) (manual / total) * 360f else 0f
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val stroke = Stroke(width = 18.dp.toPx(), cap = StrokeCap.Round)
+        drawArc(
+            color = Teal500,
+            startAngle = -90f,
+            sweepAngle = assistedSweep,
+            useCenter = false,
+            style = stroke
+        )
+        drawArc(
+            color = Blue500,
+            startAngle = -90f + assistedSweep,
+            sweepAngle = manualSweep,
+            useCenter = false,
+            style = stroke
+        )
+    }
+}
+
+@Composable
+private fun LegendItem(color: Color, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(color))
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(label, fontSize = 12.sp, color = Slate600)
+            Text(value, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Slate900)
+        }
+    }
+}
+
+@Composable
+private fun DateRangeDialog(
+    initialStart: String,
+    initialEnd: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit
+) {
+    var start by remember { mutableStateOf(initialStart) }
+    var end by remember { mutableStateOf(initialEnd) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择日期范围") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(value = start, onValueChange = { start = it }, label = { Text("开始日期") })
+                OutlinedTextField(value = end, onValueChange = { end = it }, label = { Text("结束日期") })
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(start, end) }) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+private fun formatDuration(minutes: Int): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return "${h}h ${m}m"
+}
+
+

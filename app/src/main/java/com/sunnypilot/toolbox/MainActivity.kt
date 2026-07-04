@@ -16,6 +16,7 @@ import com.sunnypilot.toolbox.ui.components.NavItem
 import com.sunnypilot.toolbox.ui.components.SideNavBar
 import com.sunnypilot.toolbox.ui.components.TopBar
 import com.sunnypilot.toolbox.ui.screens.ConnectionScreen
+import com.sunnypilot.toolbox.ui.screens.DataCenterScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
@@ -106,6 +107,9 @@ fun MainScreen(
                             sshManager = sshManager
                         )
                         NavItem.Terminal -> TerminalScreen(
+                            sshManager = sshManager
+                        )
+                        NavItem.Data -> DataCenterScreen(
                             sshManager = sshManager
                         )
                         else -> DeviceManagerScreen(
