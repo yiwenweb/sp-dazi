@@ -7,6 +7,7 @@ data class DeviceStatus(
     val cpuTemp: Float = 0f,
     val deviceTemp: Float = 0f,
     val bmsTemp: Float = 0f,
+    val cpuLoad: Float = 0f,
     val memoryUsage: Int = 0,
     val storageFree: String = "--",
     val ipAddress: String = "",

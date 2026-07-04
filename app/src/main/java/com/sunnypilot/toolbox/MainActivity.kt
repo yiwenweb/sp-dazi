@@ -17,6 +17,8 @@ import com.sunnypilot.toolbox.ui.components.SideNavBar
 import com.sunnypilot.toolbox.ui.components.TopBar
 import com.sunnypilot.toolbox.ui.screens.ConnectionScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
+import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
+import com.sunnypilot.toolbox.ui.screens.TerminalScreen
 import com.sunnypilot.toolbox.ui.theme.Background
 import com.sunnypilot.toolbox.ui.theme.SunnyPilotToolboxTheme
 
@@ -96,13 +98,18 @@ fun MainScreen(
                             repository = configRepository,
                             onConnected = { isConnected = true }
                         )
-                        NavItem.Device -> DeviceDashboardScreen(
+                        NavItem.Hardware -> DeviceDashboardScreen(
                             sshManager = sshManager,
                             onDisconnected = onDisconnected
                         )
-                        else -> DeviceDashboardScreen(
-                            sshManager = sshManager,
-                            onDisconnected = onDisconnected
+                        NavItem.Device -> DeviceManagerScreen(
+                            sshManager = sshManager
+                        )
+                        NavItem.Terminal -> TerminalScreen(
+                            sshManager = sshManager
+                        )
+                        else -> DeviceManagerScreen(
+                            sshManager = sshManager
                         )
                     }
                 }

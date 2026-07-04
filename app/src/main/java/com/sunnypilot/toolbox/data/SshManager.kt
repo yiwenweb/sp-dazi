@@ -12,7 +12,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.Properties
+
+class SshShell(
+    val inputStream: InputStream,
+    val outputStream: OutputStream,
+    private val channel: com.jcraft.jsch.ChannelShell
+) {
+    fun isConnected(): Boolean = channel.isConnected && !channel.isClosed
+    fun disconnect() {
+        try {
+            outputStream.close()
+            inputStream.close()
+            channel.disconnect()
+        } catch (_: Exception) {}
+    }
+}
 
 class SshManager {
     private var session: Session? = null
@@ -136,6 +153,7 @@ class SshManager {
             "cat /sys/class/thermal/thermal_zone0/temp",
             "cat /sys/class/thermal/thermal_zone1/temp",
             "cat /sys/class/power_supply/bms/temp 2>/dev/null || echo 0",
+            "cat /proc/loadavg | awk '{print $1}'",
             "free -m | grep Mem | awk '{print $3\" \"$2}'",
             "df -h /data | tail -1 | awk '{print $4}'",
             "cat /proc/sys/kernel/hostname",
@@ -151,13 +169,28 @@ class SshManager {
                 "cpuTemp" to (parts.getOrNull(1) ?: "0"),
                 "deviceTemp" to (parts.getOrNull(2) ?: "0"),
                 "bmsTemp" to (parts.getOrNull(3) ?: "0"),
-                "memory" to (parts.getOrNull(4) ?: "0 1"),
-                "storageFree" to (parts.getOrNull(5) ?: "--"),
-                "hostname" to (parts.getOrNull(6) ?: ""),
-                "serial" to (parts.getOrNull(7) ?: "unknown"),
-                "dongleId" to (parts.getOrNull(8) ?: "unknown"),
-                "openpilotProcesses" to (parts.getOrNull(9) ?: "0")
+                "cpuLoad" to (parts.getOrNull(4) ?: "0"),
+                "memory" to (parts.getOrNull(5) ?: "0 1"),
+                "storageFree" to (parts.getOrNull(6) ?: "--"),
+                "hostname" to (parts.getOrNull(7) ?: ""),
+                "serial" to (parts.getOrNull(8) ?: "unknown"),
+                "dongleId" to (parts.getOrNull(9) ?: "unknown"),
+                "openpilotProcesses" to (parts.getOrNull(10) ?: "0")
             )
+        }
+    }
+
+    fun openShell(): Result<SshShell> {
+        val sess = session ?: return Result.failure(IllegalStateException("未连接"))
+        return try {
+            val channel = sess.openChannel("shell") as com.jcraft.jsch.ChannelShell
+            channel.setPty("xterm-256color")
+            channel.setPtySize(120, 40, 0, 0)
+            channel.connect(10000)
+            Result.success(SshShell(channel.inputStream, channel.outputStream, channel))
+        } catch (e: Exception) {
+            Log.e("SshManager", "openShell failed", e)
+            Result.failure(e)
         }
     }
 
