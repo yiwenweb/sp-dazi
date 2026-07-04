@@ -184,7 +184,8 @@ class SshManager {
         val sess = session ?: return Result.failure(IllegalStateException("未连接"))
         return try {
             val channel = sess.openChannel("shell") as com.jcraft.jsch.ChannelShell
-            channel.setPty("xterm-256color")
+            channel.setPty(true)
+            channel.setPtyType("xterm-256color")
             channel.setPtySize(120, 40, 0, 0)
             channel.connect(10000)
             Result.success(SshShell(channel.inputStream, channel.outputStream, channel))
