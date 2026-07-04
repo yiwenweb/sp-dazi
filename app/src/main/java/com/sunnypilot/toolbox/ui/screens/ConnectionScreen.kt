@@ -422,12 +422,12 @@ fun ConnectionScreen(
                         } else {
                             Text("发现以下设备：")
                             Spacer(modifier = Modifier.height(8.dp))
-                            discoveredHosts.forEach { host ->
+                            discoveredHosts.forEach { discovered ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            this@ConnectionScreen.host = host.host
+                                            host = discovered.host
                                             showDiscoveryDialog = false
                                         }
                                         .padding(vertical = 8.dp),
@@ -435,7 +435,7 @@ fun ConnectionScreen(
                                 ) {
                                     Icon(Icons.Default.Router, null, tint = Teal500)
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text("${host.host}:${host.port}")
+                                    Text("${discovered.host}:${discovered.port}")
                                 }
                                 HorizontalDivider()
                             }
