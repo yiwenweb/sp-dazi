@@ -64,7 +64,9 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.jsch)
+
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     debugImplementation(libs.androidx.ui.tooling)

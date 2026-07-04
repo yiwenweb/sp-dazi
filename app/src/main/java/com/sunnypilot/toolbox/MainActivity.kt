@@ -10,6 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.sunnypilot.toolbox.data.ConnectionConfigRepository
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.ui.components.NavItem
 import com.sunnypilot.toolbox.ui.components.SideNavBar
@@ -21,6 +22,7 @@ import com.sunnypilot.toolbox.ui.theme.SunnyPilotToolboxTheme
 
 class MainActivity : ComponentActivity() {
     private val sshManager = SshManager()
+    private val configRepository by lazy { ConnectionConfigRepository(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,7 +32,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Background
                 ) {
-                    MainScreen(sshManager = sshManager)
+                    MainScreen(
+                        sshManager = sshManager,
+                        configRepository = configRepository
+                    )
                 }
             }
         }
@@ -43,7 +48,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen(sshManager: SshManager) {
+fun MainScreen(
+    sshManager: SshManager,
+    configRepository: ConnectionConfigRepository
+) {
     var selectedNav by remember { mutableStateOf(NavItem.Connection) }
     var isConnected by remember { mutableStateOf(sshManager.isConnected()) }
 
@@ -66,11 +74,13 @@ fun MainScreen(sshManager: SshManager) {
                 when (selectedNav) {
                     NavItem.Connection -> ConnectionScreen(
                         sshManager = sshManager,
+                        repository = configRepository,
                         onConnected = { isConnected = true }
                     )
                     NavItem.Device -> DeviceDashboardScreen(sshManager = sshManager)
                     else -> ConnectionScreen(
                         sshManager = sshManager,
+                        repository = configRepository,
                         onConnected = { isConnected = true }
                     )
                 }

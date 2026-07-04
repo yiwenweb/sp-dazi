@@ -5,7 +5,11 @@ import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
+import com.sunnypilot.toolbox.model.ConnectionStage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.Properties
@@ -14,9 +18,16 @@ class SshManager {
     private var session: Session? = null
     private val jsch = JSch()
 
+    private val _connectionStage = MutableStateFlow(ConnectionStage.IDLE)
+    val connectionStage: StateFlow<ConnectionStage> = _connectionStage.asStateFlow()
+
     companion object {
         const val DEFAULT_PORT = 22
         const val DEFAULT_USER = "comma"
+    }
+
+    fun resetStage() {
+        _connectionStage.value = ConnectionStage.IDLE
     }
 
     suspend fun connectWithPassword(
@@ -26,6 +37,9 @@ class SshManager {
         password: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            resetStage()
+            _connectionStage.value = ConnectionStage.RESOLVING
+            _connectionStage.value = ConnectionStage.CONNECTING
             disconnect()
             session = jsch.getSession(username, host, port).apply {
                 setPassword(password)
@@ -33,11 +47,14 @@ class SshManager {
                     setProperty("StrictHostKeyChecking", "no")
                 }
                 setConfig(config)
+                _connectionStage.value = ConnectionStage.AUTHENTICATING
                 connect(15000)
             }
+            _connectionStage.value = ConnectionStage.CONNECTED
             Result.success(true)
         } catch (e: Exception) {
             Log.e("SshManager", "connectWithPassword failed", e)
+            _connectionStage.value = ConnectionStage.FAILED
             Result.failure(e)
         }
     }
@@ -49,6 +66,9 @@ class SshManager {
         privateKeyContent: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            resetStage()
+            _connectionStage.value = ConnectionStage.RESOLVING
+            _connectionStage.value = ConnectionStage.CONNECTING
             disconnect()
             jsch.addIdentity("default-key", privateKeyContent.toByteArray(), null, null)
             session = jsch.getSession(username, host, port).apply {
@@ -56,14 +76,18 @@ class SshManager {
                     setProperty("StrictHostKeyChecking", "no")
                 }
                 setConfig(config)
+                _connectionStage.value = ConnectionStage.AUTHENTICATING
                 connect(15000)
             }
+            _connectionStage.value = ConnectionStage.CONNECTED
             Result.success(true)
         } catch (e: Exception) {
             Log.e("SshManager", "connectWithPrivateKey failed", e)
+            _connectionStage.value = ConnectionStage.FAILED
             Result.failure(e)
         }
     }
+
 
     suspend fun executeCommand(command: String): Result<String> = withContext(Dispatchers.IO) {
         val sess = session ?: return@withContext Result.failure(IllegalStateException("未连接"))
