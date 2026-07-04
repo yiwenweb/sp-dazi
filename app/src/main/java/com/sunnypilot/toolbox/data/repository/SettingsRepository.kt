@@ -18,7 +18,7 @@ class SettingsRepository(
 
     suspend fun listSettings(): Result<List<C3SettingMeta>> {
         return sshManager.executeCommand(
-            "cd /data/openpilot && python c3_scripts/settings_bridge.py list"
+            "cd /data/openpilot && python3 c3_scripts/settings_bridge.py list"
         ).mapCatching { output ->
             json.decodeFromString(ListSerializer(C3SettingMeta.serializer()), output)
         }
@@ -26,7 +26,7 @@ class SettingsRepository(
 
     suspend fun setSetting(key: String, value: String): Result<C3SettingResult> {
         return sshManager.executeCommand(
-            "cd /data/openpilot && python c3_scripts/settings_bridge.py set $key $value"
+            "cd /data/openpilot && python3 c3_scripts/settings_bridge.py set $key $value"
         ).mapCatching { output ->
             json.decodeFromString(C3SettingResult.serializer(), output)
         }
