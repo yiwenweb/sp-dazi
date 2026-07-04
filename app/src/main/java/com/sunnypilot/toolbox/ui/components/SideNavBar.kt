@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import com.sunnypilot.toolbox.ui.theme.*
 
 enum class NavItem(val title: String, val icon: ImageVector) {

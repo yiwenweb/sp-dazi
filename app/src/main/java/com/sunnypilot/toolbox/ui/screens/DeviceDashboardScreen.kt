@@ -123,7 +123,7 @@ fun DeviceDashboardScreen(
                 InfoCard("硬件", status.hardware, Icons.Default.Devices, Blue500, Blue100)
                 InfoCard("CPU", "AArch64 Processor", Icons.Default.Memory, Teal500, Teal50)
                 InfoCard("CPU 温度", "${status.cpuTemp}°C", Icons.Default.Thermostat, Amber500, Amber100)
-                InfoCard("设备温度", "${status.deviceTemp}°C", Icons.Default.DeviceThermostat, Green500, Green100)
+                InfoCard("设备温度", "${status.deviceTemp}°C", Icons.Default.Thermostat, Green500, Green100)
             }
         }
 
@@ -172,7 +172,7 @@ fun DeviceDashboardScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 InfoCard("CPU 温度", "${status.cpuTemp}°C", Icons.Default.Thermostat, Amber500, Amber100)
-                InfoCard("设备温度", "${status.deviceTemp}°C", Icons.Default.DeviceThermostat, Green500, Green100)
+                InfoCard("设备温度", "${status.deviceTemp}°C", Icons.Default.Thermostat, Green500, Green100)
                 InfoCard("内存占用", "${status.memoryUsage}%", Icons.Default.Memory, Blue500, Blue100)
                 InfoCard(
                     "openpilot 服务",
@@ -222,7 +222,7 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
 }
 
 @Composable
-private fun InfoCard(
+private fun RowScope.InfoCard(
     label: String,
     value: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -257,23 +257,24 @@ private fun InfoCard(
 
 private suspend fun refreshStatus(sshManager: SshManager, onResult: (DeviceStatus) -> Unit) {
     val result = sshManager.getDeviceStatus()
-    result.onSuccess { output ->
-        val parts = output.split("---").map { it.trim() }
+    result.onSuccess { data ->
+        val memoryParts = (data["memory"] ?: "0 1").split(" ")
+        val used = memoryParts.firstOrNull()?.toIntOrNull() ?: 0
+        val total = memoryParts.getOrNull(1)?.toIntOrNull() ?: 1
+        val memoryUsage = if (total > 0) (used * 100 / total) else 0
+
         onResult(
             DeviceStatus(
-                hardware = parts.getOrNull(0)?.substringAfter("Hardware\t: ")?.trim() ?: "comma three",
-                cpuTemp = parts.getOrNull(1)?.toFloatOrNull()?.div(1000f) ?: 0f,
-                deviceTemp = parts.getOrNull(2)?.toFloatOrNull()?.div(1000f) ?: 0f,
-                memoryUsage = parts.getOrNull(3)?.split(" ")?.firstOrNull()?.toIntOrNull()?.let { used ->
-                    val total = parts.getOrNull(3)?.split(" ")?.getOrNull(1)?.toIntOrNull() ?: 1
-                    if (total > 0) (used * 100 / total) else 0
-                } ?: 0,
-                storageFree = parts.getOrNull(4) ?: "--",
-                ipAddress = parts.getOrNull(5) ?: "",
-                serial = parts.getOrNull(6) ?: "",
-                stableId = parts.getOrNull(7) ?: "",
+                name = data["hostname"] ?: "Comma C3",
+                hardware = data["hardware"] ?: "comma three",
+                cpuTemp = data["cpuTemp"]?.toFloatOrNull()?.div(1000f) ?: 0f,
+                deviceTemp = data["deviceTemp"]?.toFloatOrNull()?.div(1000f) ?: 0f,
+                memoryUsage = memoryUsage,
+                storageFree = data["storageFree"] ?: "--",
+                serial = data["serial"] ?: "unknown",
+                stableId = data["dongleId"] ?: "unknown",
                 isConnected = true,
-                openpilotService = (parts.getOrNull(8)?.toIntOrNull() ?: 0) > 0,
+                openpilotService = (data["openpilotProcesses"]?.toIntOrNull() ?: 0) > 0,
                 pandaComm = true
             )
         )

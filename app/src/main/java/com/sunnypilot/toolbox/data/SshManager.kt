@@ -117,7 +117,20 @@ class SshManager {
             "ps -A | grep -E 'manager|openpilot' | grep -v grep | wc -l"
         )
         val script = commands.joinToString("; echo '---'; ")
-        executeCommand(script)
+        executeCommand(script).map { output ->
+            val parts = output.split("---").map { it.trim() }
+            mapOf(
+                "hardware" to (parts.getOrNull(0)?.substringAfter("Hardware\t: ")?.trim() ?: "comma three"),
+                "cpuTemp" to (parts.getOrNull(1) ?: "0"),
+                "deviceTemp" to (parts.getOrNull(2) ?: "0"),
+                "memory" to (parts.getOrNull(3) ?: "0 1"),
+                "storageFree" to (parts.getOrNull(4) ?: "--"),
+                "hostname" to (parts.getOrNull(5) ?: ""),
+                "serial" to (parts.getOrNull(6) ?: "unknown"),
+                "dongleId" to (parts.getOrNull(7) ?: "unknown"),
+                "openpilotProcesses" to (parts.getOrNull(8) ?: "0")
+            )
+        }
     }
 
     fun isConnected(): Boolean {
