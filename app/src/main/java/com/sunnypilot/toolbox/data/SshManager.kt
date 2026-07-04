@@ -180,9 +180,9 @@ class SshManager {
         }
     }
 
-    fun openShell(): Result<SshShell> {
-        val sess = session ?: return Result.failure(IllegalStateException("未连接"))
-        return try {
+    suspend fun openShell(): Result<SshShell> = withContext(Dispatchers.IO) {
+        val sess = session ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        try {
             val channel = sess.openChannel("shell") as com.jcraft.jsch.ChannelShell
             channel.setPty(true)
             channel.setPtyType("xterm-256color")

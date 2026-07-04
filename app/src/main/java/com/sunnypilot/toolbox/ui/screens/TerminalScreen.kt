@@ -49,8 +49,14 @@ fun TerminalScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun sendRaw(text: String) {
-        shell?.outputStream?.write(text.toByteArray(Charsets.UTF_8))
-        shell?.outputStream?.flush()
+        shell?.let { s ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    s.outputStream.write(text.toByteArray(Charsets.UTF_8))
+                    s.outputStream.flush()
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     fun sendInput(text: String) {
