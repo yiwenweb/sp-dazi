@@ -16,7 +16,6 @@ import java.util.Properties
 
 class SshManager {
     private var session: Session? = null
-    private val jsch = JSch()
 
     private val _connectionStage = MutableStateFlow(ConnectionStage.IDLE)
     val connectionStage: StateFlow<ConnectionStage> = _connectionStage.asStateFlow()
@@ -41,7 +40,7 @@ class SshManager {
             _connectionStage.value = ConnectionStage.RESOLVING
             _connectionStage.value = ConnectionStage.CONNECTING
             disconnect()
-            session = jsch.getSession(username, host, port).apply {
+            session = JSch().getSession(username, host, port).apply {
                 setPassword(password)
                 val config = Properties().apply {
                     setProperty("StrictHostKeyChecking", "no")
@@ -70,7 +69,10 @@ class SshManager {
             _connectionStage.value = ConnectionStage.RESOLVING
             _connectionStage.value = ConnectionStage.CONNECTING
             disconnect()
-            jsch.addIdentity("default-key", privateKeyContent.toByteArray(), null, null)
+
+            val normalizedKey = PpkToPemConverter.convertIfNeeded(privateKeyContent)
+            val jsch = JSch()
+            jsch.addIdentity("default-key", normalizedKey.toByteArray(), null, null)
             session = jsch.getSession(username, host, port).apply {
                 val config = Properties().apply {
                     setProperty("StrictHostKeyChecking", "no")
