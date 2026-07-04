@@ -55,6 +55,11 @@ fun MainScreen(
     var selectedNav by remember { mutableStateOf(NavItem.Connection) }
     var isConnected by remember { mutableStateOf(sshManager.isConnected()) }
 
+    val onConnected: () -> Unit = {
+        isConnected = true
+        selectedNav = NavItem.Device
+    }
+
     Row(modifier = Modifier.fillMaxSize()) {
         SideNavBar(
             selectedItem = selectedNav,
@@ -71,18 +76,23 @@ fun MainScreen(
             )
 
             Box(modifier = Modifier.weight(1f)) {
-                when (selectedNav) {
-                    NavItem.Connection -> ConnectionScreen(
+                if (!isConnected) {
+                    // 未连接时固定显示登录页
+                    ConnectionScreen(
                         sshManager = sshManager,
                         repository = configRepository,
-                        onConnected = { isConnected = true }
+                        onConnected = onConnected
                     )
-                    NavItem.Device -> DeviceDashboardScreen(sshManager = sshManager)
-                    else -> ConnectionScreen(
-                        sshManager = sshManager,
-                        repository = configRepository,
-                        onConnected = { isConnected = true }
-                    )
+                } else {
+                    when (selectedNav) {
+                        NavItem.Connection -> ConnectionScreen(
+                            sshManager = sshManager,
+                            repository = configRepository,
+                            onConnected = { isConnected = true }
+                        )
+                        NavItem.Device -> DeviceDashboardScreen(sshManager = sshManager)
+                        else -> DeviceDashboardScreen(sshManager = sshManager)
+                    }
                 }
             }
         }
