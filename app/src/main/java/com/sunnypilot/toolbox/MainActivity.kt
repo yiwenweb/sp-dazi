@@ -21,6 +21,7 @@ import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderPlayerScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderScreen
+import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
 import com.sunnypilot.toolbox.ui.theme.Background
 import com.sunnypilot.toolbox.ui.theme.SunnyPilotToolboxTheme
@@ -130,6 +131,9 @@ fun MainScreen(
                                 onPlay = { playerSegment = it }
                             )
                         }
+                        NavItem.Settings -> SettingsScreen(
+                            sshManager = sshManager
+                        )
                         else -> DeviceManagerScreen(
                             sshManager = sshManager
                         )
