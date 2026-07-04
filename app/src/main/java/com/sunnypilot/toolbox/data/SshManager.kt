@@ -147,6 +147,21 @@ class SshManager {
         }
     }
 
+    suspend fun downloadFile(remotePath: String, localPath: java.io.File): Result<Unit> = withContext(Dispatchers.IO) {
+        val sess = session ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        try {
+            localPath.parentFile?.mkdirs()
+            val channel = sess.openChannel("sftp") as ChannelSftp
+            channel.connect(10000)
+            channel.get(remotePath, localPath.absolutePath)
+            channel.disconnect()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("SshManager", "downloadFile failed", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun getDeviceStatus(): Result<Map<String, String>> = withContext(Dispatchers.IO) {
         val commands = listOf(
             "cat /proc/cpuinfo | grep 'Hardware' | head -1",

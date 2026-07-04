@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.devtools.ksp)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -73,5 +74,9 @@ dependencies {
 
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.kotlinx.serialization.json)
     debugImplementation(libs.androidx.ui.tooling)
 }
