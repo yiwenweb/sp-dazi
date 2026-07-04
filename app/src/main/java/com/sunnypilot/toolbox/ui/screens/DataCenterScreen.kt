@@ -49,6 +49,13 @@ fun DataCenterScreen(
     var startDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).first) }
     var endDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).second) }
 
+    fun loadStats() {
+        scope.launch {
+            val data = repository.aggregate(startDate, endDate)
+            stats = data
+        }
+    }
+
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
@@ -64,13 +71,6 @@ fun DataCenterScreen(
                     }
                 )
             }
-        }
-    }
-
-    fun loadStats() {
-        scope.launch {
-            val data = repository.aggregate(startDate, endDate)
-            stats = data
         }
     }
 
