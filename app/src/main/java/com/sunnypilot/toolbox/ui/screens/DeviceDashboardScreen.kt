@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.model.DeviceStatus
+import com.sunnypilot.toolbox.ui.components.StatusChip
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.launch
 
