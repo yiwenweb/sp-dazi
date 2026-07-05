@@ -402,6 +402,7 @@ fun TerminalScreen(
         }
     )
 }
+}
 
 @Composable
 private fun TerminalButton(
