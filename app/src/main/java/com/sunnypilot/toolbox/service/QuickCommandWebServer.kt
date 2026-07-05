@@ -26,16 +26,16 @@ class QuickCommandWebServer(
         val uri = session.uri.trim('/')
 
         return when {
-            method == Method.GET && uri.isEmpty() -> newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", indexHtml())
+            method == Method.GET && uri.isEmpty() -> respondWithCors(Response.Status.OK, "text/html; charset=utf-8", indexHtml())
             method == Method.GET && uri == "api/commands" -> {
                 val commands = dao.getAllSync()
-                newFixedLengthResponse(Response.Status.OK, "application/json", json.encodeToString(commands))
+                respondWithCors(Response.Status.OK, "application/json", json.encodeToString(commands))
             }
             method == Method.POST && uri == "api/commands" -> {
                 val body = parseBody(session)
                 val cmd = parseCommand(body)
                 val id = runBlocking { dao.insert(cmd) }
-                newFixedLengthResponse(Response.Status.CREATED, "application/json", json.encodeToString(cmd.copy(id = id)))
+                respondWithCors(Response.Status.CREATED, "application/json", json.encodeToString(cmd.copy(id = id)))
             }
             method == Method.PUT && uri.startsWith("api/commands/") -> {
                 val id = uri.removePrefix("api/commands/").toLongOrNull()
@@ -43,17 +43,17 @@ class QuickCommandWebServer(
                 val body = parseBody(session)
                 val cmd = parseCommand(body).copy(id = id)
                 runBlocking { dao.update(cmd) }
-                newFixedLengthResponse(Response.Status.OK, "application/json", json.encodeToString(cmd))
+                respondWithCors(Response.Status.OK, "application/json", json.encodeToString(cmd))
             }
             method == Method.DELETE && uri.startsWith("api/commands/") -> {
                 val id = uri.removePrefix("api/commands/").toLongOrNull()
                     ?: return badRequest("Invalid id")
                 val existing = runBlocking { dao.getById(id) }
-                    ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, "application/json", "{}")
+                    ?: return respondWithCors(Response.Status.NOT_FOUND, "application/json", "{}")
                 runBlocking { dao.delete(existing) }
-                newFixedLengthResponse(Response.Status.OK, "application/json", "{}")
+                respondWithCors(Response.Status.OK, "application/json", "{}")
             }
-            else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not Found")
+            else -> respondWithCors(Response.Status.NOT_FOUND, "text/plain", "Not Found")
         }
     }
 
@@ -79,7 +79,7 @@ class QuickCommandWebServer(
     }
 
     private fun badRequest(msg: String): Response {
-        return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"error\":\"$msg\"}")
+        return respondWithCors(Response.Status.BAD_REQUEST, "application/json", "{\"error\":\"$msg\"}")
     }
 
     private fun indexHtml(): String {
@@ -280,7 +280,7 @@ load();
         """.trimIndent()
     }
 
-    private fun newFixedLengthResponse(
+    private fun respondWithCors(
         status: Response.IStatus, mimeType: String, message: String
     ): Response {
         val resp = NanoHTTPD.newFixedLengthResponse(status, mimeType, message)
