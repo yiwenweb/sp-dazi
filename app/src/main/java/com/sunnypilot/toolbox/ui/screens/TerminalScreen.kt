@@ -26,8 +26,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.SshShell
+import com.sunnypilot.toolbox.data.db.AppDatabase
+import com.sunnypilot.toolbox.service.QuickCommandWebServer
 import com.sunnypilot.toolbox.ui.theme.*
 import com.sunnypilot.toolbox.ui.util.AnsiParser
+import com.sunnypilot.toolbox.ui.util.QrCodeUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,6 +44,26 @@ fun TerminalScreen(
     val clipboard = remember { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    val db = remember { AppDatabase.getDatabase(context) }
+    val quickCommandDao = remember { db.quickCommandDao() }
+    val commands by quickCommandDao.getAll().collectAsState(initial = emptyList())
+    var serverUrl by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        var server: QuickCommandWebServer? = null
+        for (port in 8080..8090) {
+            try {
+                val s = QuickCommandWebServer(port, quickCommandDao)
+                s.start()
+                server = s
+                val ip = QrCodeUtil.getLocalIpAddress()
+                serverUrl = ip?.let { "http://$it:$port" }
+                break
+            } catch (_: Exception) { }
+        }
+        onDispose { server?.stop() }
+    }
 
     var terminalText by remember { mutableStateOf("") }
     var inputText by remember { mutableStateOf("") }
@@ -121,21 +144,27 @@ fun TerminalScreen(
         scrollState.animateScrollTo(scrollState.maxValue)
     }
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxSize()
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 终端窗口
         Column(
             modifier = Modifier
-                .fillMaxWidth()
                 .weight(1f)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF0F172A))
-                .padding(16.dp)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // 终端窗口
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFF0F172A))
+                    .padding(16.dp)
+            ) {
             // 标题栏
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -358,6 +387,20 @@ fun TerminalScreen(
             )
         }
     }
+
+    QuickCommandsPanel(
+        commands = commands,
+        serverUrl = serverUrl,
+        onExecute = { sendInput("${it.command}\r") },
+        onSave = { cmd ->
+            scope.launch(Dispatchers.IO) {
+                if (cmd.id == 0L) quickCommandDao.insert(cmd) else quickCommandDao.update(cmd)
+            }
+        },
+        onDelete = { cmd ->
+            scope.launch(Dispatchers.IO) { quickCommandDao.delete(cmd) }
+        }
+    )
 }
 
 @Composable
