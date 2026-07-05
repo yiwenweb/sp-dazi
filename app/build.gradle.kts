@@ -13,7 +13,8 @@ android {
         applicationId = "com.sunnypilot.toolbox"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+            ?: (System.currentTimeMillis() / 1000).toInt()
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -22,9 +23,19 @@ android {
         }
     }
 
+    signingConfigs {
+        create("ci") {
+            storeFile = file("ci.keystore")
+            storePassword = "android"
+            keyAlias = "ci"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("ci")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
