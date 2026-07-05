@@ -280,10 +280,10 @@ load();
         """.trimIndent()
     }
 
-    override fun newFixedLengthResponse(
+    private fun newFixedLengthResponse(
         status: Response.IStatus, mimeType: String, message: String
     ): Response {
-        val resp = super.newFixedLengthResponse(status, mimeType, message)
+        val resp = NanoHTTPD.newFixedLengthResponse(status, mimeType, message)
         resp.addHeader("Access-Control-Allow-Origin", "*")
         resp.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         resp.addHeader("Access-Control-Allow-Headers", "Content-Type")
