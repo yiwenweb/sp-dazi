@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.SshShell
 import com.sunnypilot.toolbox.ui.theme.*
+import com.sunnypilot.toolbox.ui.util.AnsiParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -196,7 +197,7 @@ fun TerminalScreen(
                     .verticalScroll(scrollState)
             ) {
                 Text(
-                    text = terminalText,
+                    text = AnsiParser.parse(terminalText),
                     color = Color(0xFFE2E8F0),
                     style = TextStyle(
                         fontFamily = FontFamily.Monospace,
