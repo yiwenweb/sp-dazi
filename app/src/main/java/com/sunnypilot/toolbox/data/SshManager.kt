@@ -50,6 +50,53 @@ class SshManager {
         _connectionStage.value = ConnectionStage.IDLE
     }
 
+    /**
+     * 动态检测当前设备是否支持 EC 算法。
+     * 车机/定制 Android 可能精简了 BouncyCastle，导致 EC 不可用。
+     */
+    private fun isEcAvailable(): Boolean {
+        return try {
+            java.security.AlgorithmParameters.getInstance("EC")
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 构建 SSH 配置：
+     * - EC 可用时：使用完整算法集（含 ECDH/ECDSA），安全性更高
+     * - EC 不可用时：回退到 RSA + DH，保证在车机等精简系统上也能连接
+     */
+    private fun buildSshConfig(): Properties {
+        val config = Properties()
+        config.setProperty("StrictHostKeyChecking", "no")
+
+        if (isEcAvailable()) {
+            // 完整算法集
+            config.setProperty(
+                "kex",
+                "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1"
+            )
+            config.setProperty(
+                "server_host_key",
+                "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,rsa-sha2-512,rsa-sha2-256,ssh-rsa"
+            )
+        } else {
+            // RSA 回退：不引用任何 EC 算法，避免 JSch 加载 EC 类时崩溃
+            config.setProperty(
+                "kex",
+                "diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1"
+            )
+            config.setProperty(
+                "server_host_key",
+                "rsa-sha2-512,rsa-sha2-256,ssh-rsa"
+            )
+        }
+
+        return config
+    }
+
     suspend fun connectWithPassword(
         host: String,
         port: Int = DEFAULT_PORT,
@@ -63,10 +110,7 @@ class SshManager {
             disconnect()
             session = JSch().getSession(username, host, port).apply {
                 setPassword(password)
-                val config = Properties().apply {
-                    setProperty("StrictHostKeyChecking", "no")
-                }
-                setConfig(config)
+                setConfig(buildSshConfig())
                 _connectionStage.value = ConnectionStage.AUTHENTICATING
                 connect(15000)
             }
@@ -95,10 +139,7 @@ class SshManager {
             val jsch = JSch()
             jsch.addIdentity("default-key", normalizedKey.toByteArray(), null, null)
             session = jsch.getSession(username, host, port).apply {
-                val config = Properties().apply {
-                    setProperty("StrictHostKeyChecking", "no")
-                }
-                setConfig(config)
+                setConfig(buildSshConfig())
                 _connectionStage.value = ConnectionStage.AUTHENTICATING
                 connect(15000)
             }
