@@ -83,7 +83,7 @@ class RecorderRepository(
 
     suspend fun preprocessSegment(segmentId: String): Result<Unit> {
         return sshManager.executeCommand(
-            "cd /data/openpilot && python /data/openpilot/c3_scripts/preprocess_recorder.py $REALDATA/$segmentId"
+            "cd /data/openpilot && python3 /data/openpilot/c3_scripts/preprocess_recorder.py $REALDATA/$segmentId"
         ).map { }
     }
 
