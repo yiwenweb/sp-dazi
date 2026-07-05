@@ -182,12 +182,12 @@ function render() {
   }
   list.innerHTML = commands.map(c => `
     <div class="item">
-      <div class="item-title">${escapeHtml(c.title)}</div>
-      <div class="item-desc">${escapeHtml(c.description || '')}</div>
-      <div class="item-cmd">${escapeHtml(c.command)}</div>
+      <div class="item-title">${'$'}{escapeHtml(c.title)}</div>
+      <div class="item-desc">${'$'}{escapeHtml(c.description || '')}</div>
+      <div class="item-cmd">${'$'}{escapeHtml(c.command)}</div>
       <div class="btn-row">
-        <button class="secondary" onclick="editCommand(${c.id})">编辑</button>
-        <button class="danger" onclick="deleteCommand(${c.id})">删除</button>
+        <button class="secondary" onclick="editCommand(${'$'}{c.id})">编辑</button>
+        <button class="danger" onclick="deleteCommand(${'$'}{c.id})">删除</button>
       </div>
     </div>
   `).join('');
@@ -283,10 +283,10 @@ load();
     override fun newFixedLengthResponse(
         status: Response.IStatus, mimeType: String, message: String
     ): Response {
-        return super.newFixedLengthResponse(status, mimeType, message).apply {
-            addHeader("Access-Control-Allow-Origin", "*")
-            addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-            addHeader("Access-Control-Allow-Headers", "Content-Type")
-        }
+        val resp = super.newFixedLengthResponse(status, mimeType, message)
+        resp.addHeader("Access-Control-Allow-Origin", "*")
+        resp.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        resp.addHeader("Access-Control-Allow-Headers", "Content-Type")
+        return resp
     }
 }
