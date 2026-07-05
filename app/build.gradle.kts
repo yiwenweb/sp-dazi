@@ -91,5 +91,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
+    implementation(libs.spongycastle.prov)
     debugImplementation(libs.androidx.ui.tooling)
 }
