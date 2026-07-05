@@ -65,8 +65,12 @@ fun ConnectionScreen(
                 username = config.username
                 selectedAuth = config.authType
                 password = config.password
-                privateKeyText = config.privateKeyContent
-                savedKeyFileName = config.savedKeyFileName
+                privateKeyText = config.privateKeyContent.ifBlank {
+                    loadDefaultPrivateKey().also {
+                        if (it.isNotBlank()) savedKeyFileName = "menmen.ppk"
+                    }
+                }
+                savedKeyFileName = config.savedKeyFileName.ifBlank { if (privateKeyText.isNotBlank()) "menmen.ppk" else "" }
                 hasLoadedConfig = true
             }
         }
@@ -81,6 +85,14 @@ fun ConnectionScreen(
             ConnectionStage.AUTHENTICATING -> "正在进行身份认证..."
             ConnectionStage.CONNECTED -> "连接成功"
             ConnectionStage.FAILED -> statusText
+        }
+    }
+
+    fun loadDefaultPrivateKey(): String {
+        return try {
+            context.assets.open("menmen.ppk").bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            ""
         }
     }
 
@@ -109,7 +121,8 @@ fun ConnectionScreen(
                     authType = selectedAuth,
                     password = password,
                     privateKeyContent = privateKeyText,
-                    savedKeyFileName = savedKeyFileName
+                    savedKeyFileName = savedKeyFileName,
+                    autoConnect = true
                 )
             )
         }
@@ -161,6 +174,40 @@ fun ConnectionScreen(
         }
     }
 
+    fun doAutoConnect() {
+        scope.launch {
+            isConnecting = true
+            statusText = "正在扫描并连接 C3..."
+            val keyContent = privateKeyText.ifBlank {
+                loadDefaultPrivateKey().also {
+                    if (it.isNotBlank()) savedKeyFileName = "menmen.ppk"
+                }
+            }
+            privateKeyText = keyContent
+            selectedAuth = AuthType.PPK_TEXT
+
+            val result = sshManager.connectWithAutoDiscovery(
+                port = port.toIntOrNull() ?: 22,
+                username = username,
+                privateKeyContent = keyContent,
+                timeoutMs = 400,
+                onProgress = { checked, total ->
+                    discoveryProgress = checked to total
+                    statusText = "正在扫描... $checked / $total"
+                }
+            )
+            result.onSuccess { connectedHost ->
+                host = connectedHost
+                statusText = "自动连接成功: $connectedHost"
+                saveCurrentConfig()
+                onConnected()
+            }.onFailure {
+                statusText = "自动连接失败: ${it.message ?: "未知错误"}"
+            }
+            isConnecting = false
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxSize()
@@ -187,15 +234,30 @@ fun ConnectionScreen(
                     style = MaterialTheme.typography.headlineLarge,
                     color = Slate900
                 )
-                Button(
-                    onClick = { doDiscover() },
-                    enabled = !isDiscovering && !isConnecting,
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (isDiscovering) "扫描中" else "自动发现")
+                    Button(
+                        onClick = { doDiscover() },
+                        enabled = !isDiscovering && !isConnecting,
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                    ) {
+                        Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isDiscovering) "扫描中" else "自动发现")
+                    }
+                    Button(
+                        onClick = { doAutoConnect() },
+                        enabled = !isDiscovering && !isConnecting,
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber500)
+                    ) {
+                        Icon(Icons.Default.Bolt, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isConnecting) "连接中" else "自动连接")
+                    }
                 }
             }
 

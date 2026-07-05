@@ -6,6 +6,7 @@ import com.jcraft.jsch.Session
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
 import com.sunnypilot.toolbox.model.ConnectionStage
+import com.sunnypilot.toolbox.network.AutoDiscovery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,6 +106,52 @@ class SshManager {
             _connectionStage.value = ConnectionStage.FAILED
             Result.failure(e)
         }
+    }
+
+    suspend fun tryConnect(
+        host: String,
+        port: Int = DEFAULT_PORT,
+        username: String = DEFAULT_USER,
+        privateKeyContent: String? = null,
+        password: String? = null
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        when {
+            !privateKeyContent.isNullOrBlank() -> connectWithPrivateKey(
+                host = host,
+                port = port,
+                username = username,
+                privateKeyContent = privateKeyContent
+            )
+            !password.isNullOrBlank() -> connectWithPassword(
+                host = host,
+                port = port,
+                username = username,
+                password = password
+            )
+            else -> Result.failure(IllegalArgumentException("未提供认证凭证"))
+        }
+    }
+
+    suspend fun connectWithAutoDiscovery(
+        port: Int = DEFAULT_PORT,
+        username: String = DEFAULT_USER,
+        privateKeyContent: String,
+        timeoutMs: Int = 400,
+        onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val hosts = AutoDiscovery.findSshHosts(port, timeoutMs, onProgress)
+        hosts.forEach { discovered ->
+            val result = tryConnect(
+                host = discovered.host,
+                port = discovered.port,
+                username = username,
+                privateKeyContent = privateKeyContent
+            )
+            if (result.isSuccess) {
+                return@withContext Result.success(discovered.host)
+            }
+        }
+        Result.failure(Exception("未找到可用设备，请确认 C3 已联网且 SSH 已开启"))
     }
 
 

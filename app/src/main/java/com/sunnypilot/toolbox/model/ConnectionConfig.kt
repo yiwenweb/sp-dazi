@@ -9,6 +9,7 @@ data class ConnectionConfig(
     val authType: AuthType = AuthType.PASSWORD,
     val password: String = "",
     val privateKeyContent: String = "",
-    val savedKeyFileName: String = ""
+    val savedKeyFileName: String = "",
+    val autoConnect: Boolean = false
 )
 

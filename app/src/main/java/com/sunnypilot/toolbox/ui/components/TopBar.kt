@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -23,7 +24,8 @@ fun TopBar(
     moduleName: String,
     isConnected: Boolean,
     onRefresh: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onDisconnect: () -> Unit
 ) {
     TopAppBar(
         title = {
@@ -74,6 +76,22 @@ fun TopBar(
                     text = if (isConnected) "已连接" else "未连接",
                     isActive = isConnected
                 )
+
+                if (isConnected) {
+                    IconButton(
+                        onClick = onDisconnect,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LinkOff,
+                            contentDescription = "断开连接",
+                            tint = Red500
+                        )
+                    }
+                }
 
                 IconButton(
                     onClick = onRefresh,

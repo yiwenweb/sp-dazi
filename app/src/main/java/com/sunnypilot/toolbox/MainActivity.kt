@@ -24,6 +24,7 @@ import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
 import com.sunnypilot.toolbox.ui.theme.Background
 import com.sunnypilot.toolbox.ui.theme.SunnyPilotToolboxTheme
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
     private val sshManager = SshManager()
@@ -62,8 +63,33 @@ fun MainScreen(
 
     val onConnected: () -> Unit = {
         isConnected = true
-        selectedNav = NavItem.Device
+        selectedNav = NavItem.Hardware
     }
+
+    val onDisconnected: () -> Unit = {
+        sshManager.disconnect()
+        isConnected = false
+        selectedNav = NavItem.Connection
+    }
+
+    // 启动时若已保存自动连接配置，则直接连回 C3
+    LaunchedEffect(Unit) {
+        val config = configRepository.configFlow.first()
+        if (config.autoConnect && !sshManager.isConnected()) {
+            val keyContent = config.privateKeyContent
+            if (keyContent.isNotBlank() && config.host.isNotBlank()) {
+                sshManager.tryConnect(
+                    host = config.host,
+                    port = config.port,
+                    username = config.username,
+                    privateKeyContent = keyContent
+                ).onSuccess {
+                    onConnected()
+                }
+            }
+        }
+    }
+
 
     Row(modifier = Modifier.fillMaxSize()) {
         SideNavBar(
@@ -79,7 +105,8 @@ fun MainScreen(
                 moduleName = selectedNav.title,
                 isConnected = isConnected,
                 onRefresh = { isConnected = sshManager.isConnected() },
-                onSettings = {}
+                onSettings = {},
+                onDisconnect = onDisconnected
             )
 
             Box(modifier = Modifier.weight(1f)) {
@@ -91,12 +118,6 @@ fun MainScreen(
                         onConnected = onConnected
                     )
                 } else {
-                    val onDisconnected = {
-                        sshManager.disconnect()
-                        isConnected = false
-                        selectedNav = NavItem.Connection
-                    }
-
                     when (selectedNav) {
                         NavItem.Connection -> ConnectionScreen(
                             sshManager = sshManager,

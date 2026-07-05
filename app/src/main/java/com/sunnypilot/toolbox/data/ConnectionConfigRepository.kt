@@ -3,6 +3,7 @@ package com.sunnypilot.toolbox.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -25,6 +26,8 @@ class ConnectionConfigRepository(context: Context) {
         private val PASSWORD_KEY = stringPreferencesKey("password")
         private val PRIVATE_KEY_KEY = stringPreferencesKey("private_key")
         private val KEY_FILE_NAME_KEY = stringPreferencesKey("key_file_name")
+        private val AUTO_CONNECT_KEY = booleanPreferencesKey("auto_connect")
+
     }
 
     val configFlow: Flow<ConnectionConfig> = dataStore.data.map { prefs ->
@@ -35,7 +38,8 @@ class ConnectionConfigRepository(context: Context) {
             authType = AuthType.valueOf(prefs[AUTH_TYPE_KEY] ?: AuthType.PASSWORD.name),
             password = prefs[PASSWORD_KEY] ?: "",
             privateKeyContent = prefs[PRIVATE_KEY_KEY] ?: "",
-            savedKeyFileName = prefs[KEY_FILE_NAME_KEY] ?: ""
+            savedKeyFileName = prefs[KEY_FILE_NAME_KEY] ?: "",
+            autoConnect = prefs[AUTO_CONNECT_KEY] ?: false
         )
     }
 
@@ -48,6 +52,7 @@ class ConnectionConfigRepository(context: Context) {
             prefs[PASSWORD_KEY] = config.password
             prefs[PRIVATE_KEY_KEY] = config.privateKeyContent
             prefs[KEY_FILE_NAME_KEY] = config.savedKeyFileName
+            prefs[AUTO_CONNECT_KEY] = config.autoConnect
         }
     }
 
