@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -433,7 +434,7 @@ private fun VideoListItem(
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (ready) Icons.Default.VideoFile else Icons.Default.VideoFileOutlined,
+                    imageVector = if (ready) Icons.Default.VideoFile else Icons.Outlined.VideoFile,
                     contentDescription = null,
                     tint = if (ready) Teal500 else Slate400,
                     modifier = Modifier.size(28.dp)
