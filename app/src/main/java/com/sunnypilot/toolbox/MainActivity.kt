@@ -19,6 +19,7 @@ import com.sunnypilot.toolbox.ui.screens.ConnectionScreen
 import com.sunnypilot.toolbox.ui.screens.DataCenterScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
+import com.sunnypilot.toolbox.ui.screens.LateralTuneScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderScreen
 import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
@@ -141,6 +142,9 @@ fun MainScreen(
                             sshManager = sshManager
                         )
                         NavItem.Settings -> SettingsScreen(
+                            sshManager = sshManager
+                        )
+                        NavItem.Calc -> LateralTuneScreen(
                             sshManager = sshManager
                         )
                         else -> DeviceManagerScreen(
