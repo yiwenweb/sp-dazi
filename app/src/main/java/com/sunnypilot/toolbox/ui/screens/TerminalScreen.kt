@@ -49,9 +49,10 @@ fun TerminalScreen(
     val quickCommandDao = remember { db.quickCommandDao() }
     val commands by quickCommandDao.getAll().collectAsState(initial = emptyList())
     var serverUrl by remember { mutableStateOf<String?>(null) }
+    var server by remember { mutableStateOf<QuickCommandWebServer?>(null) }
+    var serverRunning by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
-        var server: QuickCommandWebServer? = null
+    fun startServer() {
         for (port in 8080..8090) {
             try {
                 val s = QuickCommandWebServer(port, quickCommandDao)
@@ -59,11 +60,31 @@ fun TerminalScreen(
                 server = s
                 val ip = QrCodeUtil.getLocalIpAddress()
                 serverUrl = ip?.let { "http://$it:$port" }
+                serverRunning = true
                 break
             } catch (_: Exception) { }
         }
-        onDispose { server?.stop() }
     }
+
+    fun stopServer() {
+        server?.stop()
+        server = null
+        serverUrl = null
+        serverRunning = false
+    }
+
+    fun restartServer() {
+        scope.launch(Dispatchers.IO) {
+            stopServer()
+            startServer()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        startServer()
+        onDispose { stopServer() }
+    }
+
 
     var terminalText by remember { mutableStateOf("") }
     var inputText by remember { mutableStateOf("") }
@@ -139,9 +160,9 @@ fun TerminalScreen(
         }
     }
 
-    // 自动滚动到底部
     LaunchedEffect(terminalText) {
         scrollState.animateScrollTo(scrollState.maxValue)
+        server?.updateTerminal(AnsiParser.strip(terminalText))
     }
 
     Row(
@@ -391,6 +412,8 @@ fun TerminalScreen(
     QuickCommandsPanel(
         commands = commands,
         serverUrl = serverUrl,
+        serverRunning = serverRunning,
+        onRestartServer = { restartServer() },
         onExecute = { sendInput("${it.command}\r") },
         onSave = { cmd ->
             scope.launch(Dispatchers.IO) {
@@ -402,6 +425,7 @@ fun TerminalScreen(
         }
     )
 }
+
 }
 
 @Composable

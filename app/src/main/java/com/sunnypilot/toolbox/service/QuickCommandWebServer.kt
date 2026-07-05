@@ -11,6 +11,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.util.concurrent.atomic.AtomicReference
+
+
 
 
 
@@ -20,12 +23,23 @@ class QuickCommandWebServer(
 ) : NanoHTTPD(port) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
+    private val terminalContent = AtomicReference("")
+
+    fun updateTerminal(text: String) {
+        terminalContent.set(text)
+    }
+
+    private fun getTerminalSnapshot(): String = terminalContent.get()
+
 
     override fun serve(session: IHTTPSession): Response {
         val method = session.method
         val uri = session.uri.trim('/')
 
         return when {
+            method == Method.GET && uri == "api/terminal" -> {
+                respondWithCors(Response.Status.OK, "text/plain; charset=utf-8", getTerminalSnapshot())
+            }
             method == Method.GET && uri.isEmpty() -> respondWithCors(Response.Status.OK, "text/html; charset=utf-8", indexHtml())
             method == Method.GET && uri == "api/commands" -> {
                 val commands = dao.getAllSync()
@@ -132,10 +146,22 @@ class QuickCommandWebServer(
     font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none;
   }
   .toast.show { opacity: 1; }
+  .terminal { background: #0f172a; color: #e2e8f0; }
+  .terminal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .terminal pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 13px; max-height: 400px; overflow: auto; }
 </style>
 </head>
 <body>
 <h1>快捷命令管理</h1>
+
+<div id="terminal" class="card terminal" style="display:none">
+  <div class="terminal-header">
+    <span>终端输出</span>
+    <button class="secondary" onclick="copyTerminal()">复制</button>
+  </div>
+  <pre id="terminalContent"></pre>
+</div>
+
 <div class="top-actions">
   <button class="primary" onclick="showForm()">+ 新增命令</button>
   <button class="secondary" onclick="exportJson()">导出 JSON</button>
@@ -273,12 +299,28 @@ function toast(msg) {
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
 }
+async function loadTerminal() {
+  try {
+    const res = await fetch('/api/terminal');
+    const text = await res.text();
+    const el = document.getElementById('terminalContent');
+    el.textContent = text;
+    document.getElementById('terminal').style.display = 'block';
+  } catch (e) {}
+}
+function copyTerminal() {
+  const text = document.getElementById('terminalContent').textContent;
+  navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(() => toast('复制失败'));
+}
 load();
+loadTerminal();
+setInterval(loadTerminal, 500);
 </script>
 </body>
 </html>
         """.trimIndent()
     }
+
 
     private fun respondWithCors(
         status: Response.IStatus, mimeType: String, message: String

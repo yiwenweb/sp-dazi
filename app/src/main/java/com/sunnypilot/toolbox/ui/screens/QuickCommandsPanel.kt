@@ -30,6 +30,8 @@ import com.sunnypilot.toolbox.ui.theme.*
 fun QuickCommandsPanel(
     commands: List<QuickCommand>,
     serverUrl: String?,
+    serverRunning: Boolean,
+    onRestartServer: () -> Unit,
     onExecute: (QuickCommand) -> Unit,
     onSave: (QuickCommand) -> Unit,
     onDelete: (QuickCommand) -> Unit,
@@ -121,6 +123,31 @@ fun QuickCommandsPanel(
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (serverRunning) Green500 else Red500)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (serverRunning) "服务运行中" else "服务未启动",
+                        color = if (serverRunning) Green500 else Red500,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        onClick = onRestartServer,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("重启", fontSize = 12.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Box(
                     modifier = Modifier
                         .size(120.dp)

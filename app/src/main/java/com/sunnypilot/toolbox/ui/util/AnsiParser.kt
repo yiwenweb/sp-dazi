@@ -13,8 +13,8 @@ import androidx.compose.ui.text.withStyle
  */
 object AnsiParser {
 
-    // 匹配 CSI (ESC[...X) 和 OSC (ESC]...BEL) 序列
-    private val ansiRegex = Regex("\u001B\\[[\\d;]*[a-zA-Z]|\u001B\\][^\u0007]*\u0007|\u001B\\([\\dA-Za-z]")
+    // 匹配 CSI (ESC[...X) 和 OSC (ESC]...BEL) 序列；CSI 参数支持 ? / : 等私有前缀
+    private val ansiRegex = Regex("\u001B\\[[\\d;:?]*[a-zA-Z]|\u001B\\][^\u0007]*\u0007|\u001B\\([\\dA-Za-z]")
 
     private val foregroundColors: Map<Int, Color> = mapOf(
         30 to Color(0xFF000000),
@@ -79,6 +79,9 @@ object AnsiParser {
             }
         }
     }
+
+    /** 去除所有 ANSI 转义序列，返回可见文本。 */
+    fun strip(text: String): String = text.replace(ansiRegex, "")
 
     private fun applySgr(seq: String, base: SpanStyle): SpanStyle {
         val body = seq.removePrefix("\u001B[").removeSuffix("m")
