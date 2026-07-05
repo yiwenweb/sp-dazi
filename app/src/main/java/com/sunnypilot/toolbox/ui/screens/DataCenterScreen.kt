@@ -13,7 +13,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,204 +116,45 @@ fun DataCenterScreen(
         loadStats()
     }
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // 总报
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = Panel,
-            modifier = Modifier.fillMaxWidth()
+        // 左列：总报
+        Column(
+            modifier = Modifier
+                .weight(0.6f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("总报", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
-                        Text(
-                            "统计起点 $startDate 22:05",
-                            fontSize = 12.sp,
-                            color = Slate500
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("实时更新", fontSize = 13.sp, color = Slate600)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Switch(
-                            checked = autoRefresh,
-                            onCheckedChange = { autoRefresh = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Teal500,
-                                checkedTrackColor = Teal100
-                            )
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(onClick = { loadStats() }, enabled = !isLoading) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = Teal500)
-                        }
-                        IconButton(onClick = { syncFromDevice() }, enabled = !isLoading) {
-                            Icon(Icons.Default.Build, contentDescription = "修复", tint = Slate600)
-                        }
-                        IconButton(onClick = { exportStats() }) {
-                            Icon(Icons.Default.Share, contentDescription = "导出", tint = Slate600)
-                        }
-                        IconButton(onClick = { importLauncher.launch("application/json") }) {
-                            Icon(Icons.Default.FileDownload, contentDescription = "导入", tint = Slate600)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                val s = stats ?: AggregatedStats(
-                    startDate = startDate,
-                    totalDistanceKm = 0f,
-                    assistedDistanceKm = 0f,
-                    manualDistanceKm = 0f,
-                    assistedPercent = 0,
-                    manualPercent = 0,
-                    durationMinutes = 0,
-                    durationRatioPercent = 0,
-                    safetyScore = 0,
-                    takeovers = 0,
-                    collisionWarning = 0,
-                    tailgating = 0,
-                    leadCarStationary = 0,
-                    leadCarEmergencyBrake = 0,
-                    leadCarSlow = 0,
-                    startReminder = 0,
-                    laneChangeAssist = 0
-                )
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    CircularStat("占总里程", s.assistedPercent, "${s.assistedDistanceKm} km", "驾驶辅助里程", Teal500)
-                    CircularStat("人工占比", s.manualPercent, "${s.manualDistanceKm} km", "人工驾驶里程", Blue500)
-                    CircularStat("占行驶时长", s.durationRatioPercent, formatDuration(s.durationMinutes), "智驾辅助时长", Amber500)
-                    CircularStat("安全评分", s.safetyScore, "${s.safetyScore} 分", "安全评分", Color(0xFFF59E0B))
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                val items = listOf(
-                    Triple("接管次数", s.takeovers.toString(), Red500),
-                    Triple("碰撞预警", s.collisionWarning.toString(), Red500),
-                    Triple("跟车过近", s.tailgating.toString(), Amber500),
-                    Triple("前车静止", s.leadCarStationary.toString(), Blue500),
-                    Triple("前车急刹", s.leadCarEmergencyBrake.toString(), Red500),
-                    Triple("前车龟速", s.leadCarSlow.toString(), Blue500),
-                    Triple("起步提醒", s.startReminder.toString(), Teal500),
-                    Triple("变道辅助", s.laneChangeAssist.toString(), Blue500)
-                )
-
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items.forEach { (title, value, color) ->
-                        AlertCard(title, value, color)
-                    }
-                }
-            }
+            SummaryPanel(
+                stats = stats,
+                startDate = startDate,
+                autoRefresh = autoRefresh,
+                onAutoRefreshChange = { autoRefresh = it },
+                onRefresh = { loadStats() },
+                onSync = { syncFromDevice() },
+                isLoading = isLoading
+            )
         }
 
-        // ADS 里程
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = Panel,
-            modifier = Modifier.fillMaxWidth()
+        // 右列：ADS 里程 + 驾驶效率
+        Column(
+            modifier = Modifier
+                .weight(0.4f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("ADS 里程", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
-                        Text("辅助驾驶与人工驾驶里程分布", fontSize = 12.sp, color = Slate500)
-                    }
-                    Row {
-                        IconButton(onClick = { exportStats() }) {
-                            Icon(Icons.Default.Share, contentDescription = "分享", tint = Slate600)
-                        }
-                        IconButton(onClick = { showDateDialog = true }) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = "排行", tint = Slate600)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                val s2 = stats
-                if (s2 != null && s2.totalDistanceKm > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(160.dp), contentAlignment = Alignment.Center) {
-                            CanvasRing(
-                                assisted = s2.assistedDistanceKm,
-                                manual = s2.manualDistanceKm,
-                                total = s2.totalDistanceKm
-                            )
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${s2.totalDistanceKm}", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Slate900)
-                                Text("总里程(公里)", fontSize = 11.sp, color = Slate500)
-                                Text("智驾 ${s2.assistedPercent}%\n车主 ${s2.manualPercent}%", fontSize = 10.sp, color = Slate500)
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(24.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            LegendItem(Teal500, "智驾辅助里程", "${s2.assistedDistanceKm} 公里")
-                            LegendItem(Blue500, "驾驶员里程", "${s2.manualDistanceKm} 公里")
-                            LegendItem(Slate600, "总里程", "${s2.totalDistanceKm} 公里")
-                        }
-                    }
-                } else {
-                    Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
-                        Text("暂无里程数据，点击刷新或同步", color = Slate500)
-                    }
-                }
-            }
-        }
-
-        // 驾驶效率
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = Panel,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("驾驶效率", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
-                Text("里程、时长和速度的核心效率指标", fontSize = 12.sp, color = Slate500)
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                val s3 = stats
-                val efficiencyItems = listOf(
-                    Triple("单次最长", "${s3?.longestSingleDistanceKm ?: 0f} km", Amber500),
-                    Triple("连续 OP", formatDuration(s3?.continuousOpMinutes ?: 0), Teal500),
-                    Triple("千公里接管", "${s3?.takeoversPerKkm ?: 0f}", Red500),
-                    Triple("平均速度", "${s3?.avgSpeedKmh ?: 0f} km/h", Blue500),
-                    Triple("最高速度", "${s3?.maxSpeedKmh ?: 0f} km/h", Blue500),
-                    Triple("总时长", formatDuration(s3?.durationMinutes ?: 0), Amber500)
-                )
-
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    efficiencyItems.forEach { (title, value, color) ->
-                        MetricCard(title, value, color)
-                    }
-                }
-            }
+            AdsMileagePanel(
+                stats = stats,
+                onExport = { exportStats() },
+                onImport = { importLauncher.launch("application/json") }
+            )
+            EfficiencyPanel(stats = stats)
         }
     }
 
@@ -330,6 +172,217 @@ fun DataCenterScreen(
         )
     }
 }
+
+@Composable
+private fun SummaryPanel(
+    stats: AggregatedStats?,
+    startDate: String,
+    autoRefresh: Boolean,
+    onAutoRefreshChange: (Boolean) -> Unit,
+    onRefresh: () -> Unit,
+    onSync: () -> Unit,
+    isLoading: Boolean
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = Panel,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("总报", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+                    Text(
+                        "统计起点 $startDate 22:05",
+                        fontSize = 12.sp,
+                        color = Slate500
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("实时更新", fontSize = 13.sp, color = Slate600)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Switch(
+                        checked = autoRefresh,
+                        onCheckedChange = onAutoRefreshChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Teal500,
+                            checkedTrackColor = Teal100
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(onClick = onRefresh, enabled = !isLoading) {
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = Teal500)
+                    }
+                    IconButton(onClick = onSync, enabled = !isLoading) {
+                        Icon(Icons.Default.Build, contentDescription = "修复", tint = Slate600)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val s = stats ?: AggregatedStats(
+                startDate = startDate,
+                totalDistanceKm = 0f,
+                assistedDistanceKm = 0f,
+                manualDistanceKm = 0f,
+                assistedPercent = 0,
+                manualPercent = 0,
+                durationMinutes = 0,
+                durationRatioPercent = 0,
+                safetyScore = 0,
+                takeovers = 0,
+                collisionWarning = 0,
+                tailgating = 0,
+                leadCarStationary = 0,
+                leadCarEmergencyBrake = 0,
+                leadCarSlow = 0,
+                startReminder = 0,
+                laneChangeAssist = 0
+            )
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                CircularStat("占总里程", s.assistedPercent, "${s.assistedDistanceKm} km", "驾驶辅助里程", Teal500)
+                CircularStat("人工占比", s.manualPercent, "${s.manualDistanceKm} km", "人工驾驶里程", Blue500)
+                CircularStat("占行驶时长", s.durationRatioPercent, formatDuration(s.durationMinutes), "智驾辅助时长", Amber500)
+                CircularStat("安全评分", s.safetyScore, "${s.safetyScore} 分", "安全评分", Color(0xFFF59E0B))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val items = listOf(
+                Triple("接管次数", s.takeovers.toString(), Red500),
+                Triple("碰撞预警", s.collisionWarning.toString(), Red500),
+                Triple("跟车过近", s.tailgating.toString(), Amber500),
+                Triple("前车静止", s.leadCarStationary.toString(), Blue500),
+                Triple("前车急刹", s.leadCarEmergencyBrake.toString(), Red500),
+                Triple("前车龟速", s.leadCarSlow.toString(), Blue500),
+                Triple("起步提醒", s.startReminder.toString(), Teal500),
+                Triple("变道辅助", s.laneChangeAssist.toString(), Blue500)
+            )
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items.forEach { (title, value, color) ->
+                    AlertCard(title, value, color)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdsMileagePanel(
+    stats: AggregatedStats?,
+    onExport: () -> Unit,
+    onImport: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = Panel,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("ADS 里程", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+                    Text("辅助驾驶与人工驾驶里程分布", fontSize = 12.sp, color = Slate500)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = onExport) {
+                        Icon(Icons.Default.Upload, contentDescription = "导出", modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("导出", fontSize = 13.sp)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(onClick = onImport) {
+                        Icon(Icons.Default.Download, contentDescription = "导入", modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("导入", fontSize = 13.sp)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val s2 = stats
+            if (s2 != null && s2.totalDistanceKm > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(160.dp), contentAlignment = Alignment.Center) {
+                        CanvasRing(
+                            assisted = s2.assistedDistanceKm,
+                            manual = s2.manualDistanceKm,
+                            total = s2.totalDistanceKm
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${s2.totalDistanceKm}", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Slate900)
+                            Text("总里程(公里)", fontSize = 11.sp, color = Slate500)
+                            Text("智驾 ${s2.assistedPercent}%\n车主 ${s2.manualPercent}%", fontSize = 10.sp, color = Slate500)
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(24.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LegendItem(Teal500, "智驾辅助里程", "${s2.assistedDistanceKm} 公里")
+                        LegendItem(Blue500, "驾驶员里程", "${s2.manualDistanceKm} 公里")
+                        LegendItem(Slate600, "总里程", "${s2.totalDistanceKm} 公里")
+                    }
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                    Text("暂无里程数据，点击刷新或同步", color = Slate500)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EfficiencyPanel(stats: AggregatedStats?) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = Panel,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("驾驶效率", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
+            Text("里程、时长和速度的核心效率指标", fontSize = 12.sp, color = Slate500)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val s3 = stats
+            val efficiencyItems = listOf(
+                Triple("单次最长", "${s3?.longestSingleDistanceKm ?: 0f} km", Amber500),
+                Triple("连续 OP", formatDuration(s3?.continuousOpMinutes ?: 0), Teal500),
+                Triple("千公里接管", "${s3?.takeoversPerKkm ?: 0f}", Red500),
+                Triple("平均速度", "${s3?.avgSpeedKmh ?: 0f} km/h", Blue500),
+                Triple("最高速度", "${s3?.maxSpeedKmh ?: 0f} km/h", Blue500),
+                Triple("总时长", formatDuration(s3?.durationMinutes ?: 0), Amber500)
+            )
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                efficiencyItems.forEach { (title, value, color) ->
+                    MetricCard(title, value, color)
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun CircularStat(label: String, percent: Int, value: String, subLabel: String, color: Color) {
