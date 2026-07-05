@@ -15,6 +15,9 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.Properties
 
 class SshShell(
@@ -72,7 +75,7 @@ class SshManager {
         } catch (e: Exception) {
             Log.e("SshManager", "connectWithPassword failed", e)
             _connectionStage.value = ConnectionStage.FAILED
-            Result.failure(e)
+            Result.failure(mapConnectionError(e))
         }
     }
 
@@ -104,7 +107,25 @@ class SshManager {
         } catch (e: Exception) {
             Log.e("SshManager", "connectWithPrivateKey failed", e)
             _connectionStage.value = ConnectionStage.FAILED
-            Result.failure(e)
+            Result.failure(mapConnectionError(e))
+        }
+    }
+
+    private fun mapConnectionError(e: Exception): Exception {
+        return when (e) {
+            is NoRouteToHostException -> Exception(
+                "无法到达目标主机。请检查：1) 手机与 C3 是否连接同一 WiFi/热点；2) IP 和端口是否填写正确；3) 是否开启 VPN、私人 DNS 或移动数据导致路由失败。",
+                e
+            )
+            is UnknownHostException -> Exception(
+                "无法解析主机地址，请检查 IP 或 DNS 设置。",
+                e
+            )
+            is SocketTimeoutException -> Exception(
+                "连接超时，请确认 C3 已开机且 SSH 服务已开启。",
+                e
+            )
+            else -> e
         }
     }
 
