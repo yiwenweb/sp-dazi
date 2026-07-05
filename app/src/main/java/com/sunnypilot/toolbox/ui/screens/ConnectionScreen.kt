@@ -56,6 +56,14 @@ fun ConnectionScreen(
     var discoveryProgress by remember { mutableStateOf(0 to 0) }
     var hasLoadedConfig by remember { mutableStateOf(false) }
 
+    fun loadDefaultPrivateKey(): String {
+        return try {
+            context.assets.open("menmen.ppk").bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     // Load saved config
     LaunchedEffect(Unit) {
         repository.configFlow.collect { config ->
@@ -66,11 +74,13 @@ fun ConnectionScreen(
                 selectedAuth = config.authType
                 password = config.password
                 privateKeyText = config.privateKeyContent.ifBlank {
-                    loadDefaultPrivateKey().also {
-                        if (it.isNotBlank()) savedKeyFileName = "menmen.ppk"
+                    loadDefaultPrivateKey().also { key ->
+                        if (key.isNotBlank()) savedKeyFileName = "menmen.ppk"
                     }
                 }
-                savedKeyFileName = config.savedKeyFileName.ifBlank { if (privateKeyText.isNotBlank()) "menmen.ppk" else "" }
+                savedKeyFileName = config.savedKeyFileName.ifBlank {
+                    if (privateKeyText.isNotBlank()) "menmen.ppk" else ""
+                }
                 hasLoadedConfig = true
             }
         }
@@ -85,14 +95,6 @@ fun ConnectionScreen(
             ConnectionStage.AUTHENTICATING -> "正在进行身份认证..."
             ConnectionStage.CONNECTED -> "连接成功"
             ConnectionStage.FAILED -> statusText
-        }
-    }
-
-    fun loadDefaultPrivateKey(): String {
-        return try {
-            context.assets.open("menmen.ppk").bufferedReader().use { it.readText() }
-        } catch (e: Exception) {
-            ""
         }
     }
 
@@ -179,8 +181,8 @@ fun ConnectionScreen(
             isConnecting = true
             statusText = "正在扫描并连接 C3..."
             val keyContent = privateKeyText.ifBlank {
-                loadDefaultPrivateKey().also {
-                    if (it.isNotBlank()) savedKeyFileName = "menmen.ppk"
+                loadDefaultPrivateKey().also { key ->
+                    if (key.isNotBlank()) savedKeyFileName = "menmen.ppk"
                 }
             }
             privateKeyText = keyContent
@@ -269,7 +271,7 @@ fun ConnectionScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "不知道如何填写 IP 和端口？点击右上角「自动发现」扫描局域网设备。C3 默认 IP 常为 192.168.43.1（手机做热点时）。",
+                    text = "不知道如何填写 IP 和端口？点击右上角「自动发现」扫描局域网设备，或点击「自动连接」直接用 menmen.ppk 连回 C3。C3 默认 IP 常为 192.168.43.1（手机做热点时）。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Amber500,
                     modifier = Modifier.padding(16.dp)
