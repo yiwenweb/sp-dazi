@@ -3,7 +3,7 @@ package com.sunnypilot.toolbox.data
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
 import java.math.BigInteger
-import java.util.Base64
+import android.util.Base64
 
 /**
  * Converts an unencrypted PuTTY PPK (v2) private key to the OpenSSH PEM
@@ -122,7 +122,7 @@ object PpkToPemConverter {
             encodeInteger(coefficient)
         )
 
-        val base64 = Base64.getEncoder().encodeToString(rsaSequence)
+        val base64 = Base64.encodeToString(rsaSequence, Base64.DEFAULT)
         return buildString {
             appendLine("-----BEGIN RSA PRIVATE KEY-----")
             for (chunk in base64.chunked(64)) {
@@ -153,7 +153,7 @@ object PpkToPemConverter {
     }
 
     private fun base64Decode(input: String): ByteArray {
-        return Base64.getDecoder().decode(input.filter { !it.isWhitespace() })
+        return Base64.decode(input.filter { !it.isWhitespace() }, Base64.DEFAULT)
     }
 
     private fun encodeInteger(value: BigInteger): ByteArray {
