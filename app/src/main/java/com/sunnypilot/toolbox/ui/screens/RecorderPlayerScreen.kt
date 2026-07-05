@@ -81,7 +81,11 @@ fun RecorderPlayerScreen(
             if (isLoading || overlay == null || videoFile == null) {
                 LoadingState(loadingMessage, errorMessage)
             } else {
-                VideoPlayerWithOverlay(overlay!!, videoFile!!)
+                RecorderPlayer(
+                    overlay = overlay!!,
+                    videoFile = videoFile!!,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
@@ -110,7 +114,7 @@ private fun PlayerTopBar(segmentId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun LoadingState(message: String, error: String?) {
+fun LoadingState(message: String, error: String?) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (error == null) {
@@ -128,7 +132,11 @@ private fun LoadingState(message: String, error: String?) {
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun VideoPlayerWithOverlay(overlay: RecorderOverlay, videoFile: java.io.File) {
+fun RecorderPlayer(
+    overlay: RecorderOverlay,
+    videoFile: java.io.File,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -171,7 +179,7 @@ private fun VideoPlayerWithOverlay(overlay: RecorderOverlay, videoFile: java.io.
         findNearestFrame(overlay, currentPosition)
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = modifier) {
         AndroidView(
             factory = {
                 PlayerView(context).apply {

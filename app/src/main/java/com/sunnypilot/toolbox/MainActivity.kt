@@ -19,7 +19,6 @@ import com.sunnypilot.toolbox.ui.screens.ConnectionScreen
 import com.sunnypilot.toolbox.ui.screens.DataCenterScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
-import com.sunnypilot.toolbox.ui.screens.RecorderPlayerScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderScreen
 import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
@@ -60,7 +59,6 @@ fun MainScreen(
 ) {
     var selectedNav by remember { mutableStateOf(NavItem.Connection) }
     var isConnected by remember { mutableStateOf(sshManager.isConnected()) }
-    var playerSegment by remember { mutableStateOf<String?>(null) }
 
     val onConnected: () -> Unit = {
         isConnected = true
@@ -71,7 +69,6 @@ fun MainScreen(
         SideNavBar(
             selectedItem = selectedNav,
             onItemSelected = {
-                playerSegment = null
                 selectedNav = it
             },
             modifier = Modifier.fillMaxHeight()
@@ -119,18 +116,9 @@ fun MainScreen(
                         NavItem.Data -> DataCenterScreen(
                             sshManager = sshManager
                         )
-                        NavItem.Recorder -> if (playerSegment != null) {
-                            RecorderPlayerScreen(
-                                segmentId = playerSegment!!,
-                                sshManager = sshManager,
-                                onBack = { playerSegment = null }
-                            )
-                        } else {
-                            RecorderScreen(
-                                sshManager = sshManager,
-                                onPlay = { playerSegment = it }
-                            )
-                        }
+                        NavItem.Recorder -> RecorderScreen(
+                            sshManager = sshManager
+                        )
                         NavItem.Settings -> SettingsScreen(
                             sshManager = sshManager
                         )
