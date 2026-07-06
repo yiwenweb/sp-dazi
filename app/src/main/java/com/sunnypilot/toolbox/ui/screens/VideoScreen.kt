@@ -122,22 +122,21 @@ fun VideoScreen(
                                 settings.builtInZoomControls = false
                                 settings.setSupportZoom(false)
                                 // 透明背景，避免黑闪
-                                setBackgroundColor(0x00000000)
-                                isOpaque = false
+                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
                                 webViewClient = object : WebViewClient() {
-                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                                         isLoading = true
                                     }
-                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                    override fun onPageFinished(view: WebView?, pageUrl: String?) {
                                         isLoading = false
                                     }
                                     override fun onReceivedError(
                                         view: WebView?,
                                         request: WebResourceRequest?,
-                                        error: android.webkit.WebResourceError?
+                                        webError: android.webkit.WebResourceError?
                                     ) {
                                         if (request?.isForMainFrame == true) {
-                                            this@VideoScreen.error = "无法连接到 C3 (${url})"
+                                            error = "无法连接到 C3 ($url)"
                                         }
                                     }
                                 }
