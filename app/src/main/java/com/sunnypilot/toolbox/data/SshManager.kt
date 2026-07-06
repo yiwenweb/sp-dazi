@@ -37,6 +37,8 @@ class SshShell(
 
 class SshManager {
     private var session: Session? = null
+    var connectedHost: String? = null
+        private set
 
     private val _connectionStage = MutableStateFlow(ConnectionStage.IDLE)
     val connectionStage: StateFlow<ConnectionStage> = _connectionStage.asStateFlow()
@@ -108,6 +110,7 @@ class SshManager {
             _connectionStage.value = ConnectionStage.RESOLVING
             _connectionStage.value = ConnectionStage.CONNECTING
             disconnect()
+            connectedHost = host
             session = JSch().getSession(username, host, port).apply {
                 setPassword(password)
                 setConfig(buildSshConfig())
@@ -135,6 +138,7 @@ class SshManager {
             _connectionStage.value = ConnectionStage.CONNECTING
             disconnect()
 
+            connectedHost = host
             val normalizedKey = PpkToPemConverter.convertIfNeeded(privateKeyContent)
             val jsch = JSch()
             jsch.addIdentity("default-key", normalizedKey.toByteArray(), null, null)
@@ -328,5 +332,6 @@ class SshManager {
             session?.disconnect()
         } catch (_: Exception) {}
         session = null
+        connectedHost = null
     }
 }

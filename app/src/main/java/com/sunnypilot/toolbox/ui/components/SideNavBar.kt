@@ -28,7 +28,7 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     Data("数据中台", Icons.Default.BarChart, true),
     Recorder("记录仪预览", Icons.Default.VideoLibrary, true),
     Settings("驾驶设置", Icons.Default.Settings, true),
-    Video("视频预览", Icons.Default.Videocam),
+    Video("视频预览", Icons.Default.Videocam, true),
     Files("文件", Icons.Default.Folder),
     Calc("智能计算", Icons.Default.Calculate, true),
     Shortcuts("一键下发", Icons.Default.Send),

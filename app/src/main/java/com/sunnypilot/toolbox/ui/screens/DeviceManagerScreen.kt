@@ -850,7 +850,7 @@ echo ""
 echo "===== 清理后状态 ====="
 AFTER_MEM=${'$'}(free -m | grep Mem | awk '{print ${'$'}3}')
 echo "内存使用: ${'$'}AFTER_MEM MB / ${'$'}(free -m | grep Mem | awk '{print ${'$'}2}') MB"
-FREED=${'$'}((${BEFORE_MEM:-0} - ${AFTER_MEM:-0}))
+FREED=${'$'}((${'$'}{BEFORE_MEM:-0} - ${'$'}{AFTER_MEM:-0}))
 echo "释放内存: ${'$'}FREED MB"
 echo "剩余过期日志: ${'$'}(find /data/log -maxdepth 1 -type f -mtime +7 2>/dev/null | wc -l) 个"
 echo "剩余临时文件: ${'$'}(find /tmp -type f -atime +1 2>/dev/null | wc -l) 个"
