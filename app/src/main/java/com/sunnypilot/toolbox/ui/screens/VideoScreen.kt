@@ -92,6 +92,7 @@ fun VideoScreen(
             }
 
             streamUrl != null -> {
+                val url = streamUrl!!
                 AndroidView(
                     factory = { context ->
                         WebView(context).apply {
@@ -107,7 +108,7 @@ fun VideoScreen(
                             settings.setSupportZoom(false)
                             setBackgroundColor(android.graphics.Color.BLACK)
                             webViewClient = WebViewClient()
-                            loadUrl(streamUrl)
+                            loadUrl(url)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
@@ -118,7 +119,7 @@ fun VideoScreen(
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    CircularProgressIndicator(color = Teal400)
+                    CircularProgressIndicator(color = Teal500)
                     Spacer(Modifier.height(16.dp))
                     Text(
                         "正在连接 C3 视频流...",
