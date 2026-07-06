@@ -236,8 +236,21 @@ fun DeviceDashboardScreen(
                                 modifier = Modifier.weight(1f),
                                 onClick = {
                                     scope.launch {
+                                        val cmds = listOf(
+                                            "echo '===== 崩溃日志 (error.log) ====='",
+                                            "cat /data/community/crashes/error.log 2>/dev/null || echo '(无崩溃日志)'",
+                                            "",
+                                            "echo '===== 历史崩溃记录 ====='",
+                                            "ls -lt /data/community/crashes/*.log 2>/dev/null | head -5 || echo '(无历史崩溃记录)'",
+                                            "",
+                                            "echo '===== 最近运行时错误 (swaglog) ====='",
+                                            "for f in /data/log/swaglog.*; do tail -20 \"\$f\" 2>/dev/null; done | grep -i 'error\\|crash\\|traceback\\|exception' | tail -30 || echo '(无运行时错误)'",
+                                            "",
+                                            "echo '===== 系统日志错误 ====='",
+                                            "journalctl -n 30 --no-pager 2>/dev/null | grep -i 'error\\|crash\\|traceback' | tail -10 || echo '(无法读取系统日志)'"
+                                        )
                                         errorLogText = sshManager.executeCommand(
-                                            "cat /data/community/crashes/error.log 2>/dev/null || echo '暂无错误日志'"
+                                            cmds.joinToString("\n")
                                         ).getOrElse { "读取失败: ${it.message}" }
                                         showErrorLog = true
                                     }
@@ -364,9 +377,12 @@ fun DeviceDashboardScreen(
             confirm = "关机",
             onConfirm = {
                 showShutdownDialog = false
-                scope.launch { sshManager.executeCommand("sudo poweroff") }
-                sshManager.disconnect()
-                onDisconnected()
+                scope.launch {
+                    sshManager.executeCommand("sudo poweroff")
+                    // 等待命令发送完成后再断开连接，确保 C3 收到关机指令
+                    sshManager.disconnect()
+                    onDisconnected()
+                }
             },
             onDismiss = { showShutdownDialog = false }
         )
