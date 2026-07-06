@@ -3,14 +3,11 @@ package com.sunnypilot.toolbox.ui.screens
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.view.ViewGroup
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -61,10 +58,11 @@ fun VideoScreen(
         }
     }
 
+    // 卡片式布局：浅色背景 + 居中视频卡片 + 白边围绕
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A)), // Slate900 深色背景
+            .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
         when {
@@ -74,110 +72,123 @@ fun VideoScreen(
                     modifier = Modifier.padding(32.dp)
                 ) {
                     Text(
-                        "无法连接",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
+                        "视频预览",
+                        color = Slate900,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(12.dp))
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF1E293B)
+                        color = Slate100
                     ) {
                         Text(
                             text = error!!,
-                            color = Color(0xFFF87171),
+                            color = Color(0xFFDC2626),
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
                         )
                     }
                     Spacer(Modifier.height(20.dp))
-                    OutlinedButton(
+                    Button(
                         onClick = { retryKey++ },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Teal500),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(Teal500)
-                        )
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal500)
                     ) {
-                        Text("重试")
+                        Text("重试", color = Color.White)
                     }
                 }
             }
 
             streamUrl != null -> {
                 val url = streamUrl!!
-                Box(modifier = Modifier.fillMaxSize()) {
-                    AndroidView(
-                        factory = { context ->
-                            WebView(context).apply {
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.loadWithOverviewMode = true
-                                settings.useWideViewPort = true
-                                settings.builtInZoomControls = false
-                                settings.setSupportZoom(false)
-                                // 透明背景，避免黑闪
-                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
-                                        isLoading = true
-                                    }
-                                    override fun onPageFinished(view: WebView?, pageUrl: String?) {
-                                        isLoading = false
-                                    }
-                                    override fun onReceivedError(
-                                        view: WebView?,
-                                        request: WebResourceRequest?,
-                                        webError: android.webkit.WebResourceError?
-                                    ) {
-                                        if (request?.isForMainFrame == true) {
-                                            error = "无法连接到 C3 ($url)"
-                                        }
-                                    }
-                                }
-                                loadUrl(url)
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // 加载遮罩层，有淡入淡出动画
-                    AnimatedVisibility(
-                        visible = isLoading,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                        modifier = Modifier.fillMaxSize()
+                // 视频卡片容器
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 10f)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
+                        // 视频内容区（白色边框内）
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF0F172A)),
-                            contentAlignment = Alignment.Center
+                                .padding(10.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF1A1A2E))
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(
-                                    color = Teal500,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                                Spacer(Modifier.height(16.dp))
-                                Text(
-                                    "正在连接 C3 实时画面...",
-                                    color = Slate400,
-                                    fontSize = 13.sp
-                                )
-                                c3Ip?.let { ip ->
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        ip,
-                                        color = Slate600,
-                                        fontSize = 12.sp
-                                    )
+                            AndroidView(
+                                factory = { context ->
+                                    WebView(context).apply {
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        settings.javaScriptEnabled = true
+                                        settings.domStorageEnabled = true
+                                        settings.loadWithOverviewMode = true
+                                        settings.useWideViewPort = true
+                                        settings.builtInZoomControls = false
+                                        settings.setSupportZoom(false)
+                                        setBackgroundColor(0x00000000)
+                                        webViewClient = object : WebViewClient() {
+                                            override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                                                isLoading = true
+                                            }
+                                            override fun onPageFinished(view: WebView?, pageUrl: String?) {
+                                                isLoading = false
+                                            }
+                                            override fun onReceivedError(
+                                                view: WebView?,
+                                                request: WebResourceRequest?,
+                                                webError: android.webkit.WebResourceError?
+                                            ) {
+                                                if (request?.isForMainFrame == true) {
+                                                    error = "无法连接到 C3 ($url)"
+                                                }
+                                            }
+                                        }
+                                        loadUrl(url)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // 加载提示
+                            if (isLoading) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF1A1A2E)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(
+                                            color = Teal500,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            "正在连接 C3 实时画面...",
+                                            color = Slate400,
+                                            fontSize = 13.sp
+                                        )
+                                        c3Ip?.let { ip ->
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                ip,
+                                                color = Slate600,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -186,20 +197,14 @@ fun VideoScreen(
             }
 
             else -> {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(
                         color = Teal500,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(32.dp)
                     )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "正在准备视频流...",
-                        color = Slate400,
-                        fontSize = 13.sp
-                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("正在准备视频流...", color = Slate400, fontSize = 13.sp)
                 }
             }
         }
