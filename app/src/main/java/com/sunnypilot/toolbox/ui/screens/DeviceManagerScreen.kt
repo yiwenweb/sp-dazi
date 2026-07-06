@@ -34,10 +34,14 @@ fun DeviceManagerScreen(
     var healthScore by remember { mutableStateOf(100) }
     var scoreLabel by remember { mutableStateOf("设备体态良好") }
     var isChecking by remember { mutableStateOf(false) }
+    var showCleanupConfirm by remember { mutableStateOf(false) }
     var showCleanupDialog by remember { mutableStateOf(false) }
     var cleanupResult by remember { mutableStateOf("") }
+    var isCleaning by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var exportResult by remember { mutableStateOf("") }
+    var selectedSuggestion by remember { mutableStateOf<Suggestion?>(null) }
+    var showSuggestionDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val suggestions = remember(status, healthScore) { generateSuggestions(status, healthScore) }
 
@@ -218,13 +222,7 @@ fun DeviceManagerScreen(
                         iconBg = Green100,
                         badge = "可优化",
                         modifier = Modifier.weight(1f),
-                        onClick = {
-                            scope.launch {
-                                runCleanup(sshManager) { cleanupResult = it }
-                                showCleanupDialog = true
-                                performCheck()
-                            }
-                        }
+                        onClick = { showCleanupConfirm = true }
                     )
                 }
             }
@@ -246,27 +244,100 @@ fun DeviceManagerScreen(
                 Spacer(modifier = Modifier.height(20.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     suggestions.forEach { suggestion ->
-                        SuggestionItem(suggestion = suggestion)
+                        SuggestionItem(
+                            suggestion = suggestion,
+                            onClick = {
+                                selectedSuggestion = suggestion
+                                showSuggestionDialog = true
+                            }
+                        )
                     }
                 }
             }
         }
     }
 
-    if (isChecking) {
+    if (isChecking || isCleaning) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = Teal500)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Teal500)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    if (isCleaning) "正在清理..." else "正在检测...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Slate600
+                )
+            }
         }
+    }
+
+    if (showCleanupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCleanupConfirm = false },
+            title = { Text("确认清理", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "即将在 C3 设备上执行以下清理操作：",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Slate900
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CleanupItemDesc("🧠 释放内核缓存", "清除 page cache、dentry、inode 缓存，释放内存")
+                        CleanupItemDesc("📁 删除过期日志", "删除 /data/log/ 下 7 天前的日志文件")
+                        CleanupItemDesc("🗑 清理临时文件", "删除 /tmp/ 下 1 天前未访问的临时文件")
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "此操作不会影响 openpilot 核心功能，仅清理可删除的缓存和过期数据。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Slate600
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCleanupConfirm = false
+                        scope.launch {
+                            isCleaning = true
+                            runCleanupDetailed(sshManager) { cleanupResult = it }
+                            isCleaning = false
+                            showCleanupDialog = true
+                            performCheck()
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Green500)
+                ) {
+                    Text("确认清理")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanupConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 
     if (showCleanupDialog) {
         AlertDialog(
             onDismissRequest = { showCleanupDialog = false },
-            title = { Text("清理结果") },
-            text = { Text(cleanupResult) },
+            title = { Text("清理结果", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(cleanupResult, style = MaterialTheme.typography.bodyMedium)
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { showCleanupDialog = false }) {
                     Text("确定")
@@ -283,6 +354,52 @@ fun DeviceManagerScreen(
             confirmButton = {
                 TextButton(onClick = { showExportDialog = false }) {
                     Text("确定")
+                }
+            }
+        )
+    }
+
+    if (showSuggestionDialog && selectedSuggestion != null) {
+        val s = selectedSuggestion!!
+        AlertDialog(
+            onDismissRequest = { showSuggestionDialog = false },
+            title = { Text(s.title, color = Slate900) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(s.description, style = MaterialTheme.typography.bodyLarge, color = Slate600)
+                    HorizontalDivider(color = Slate200)
+                    Text(s.detailText, style = MaterialTheme.typography.bodyMedium, color = Slate600)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSuggestionDialog = false
+                        when (s.actionType) {
+                            SuggestionAction.CHECK -> performCheck()
+                            SuggestionAction.CLEANUP -> {
+                                showCleanupConfirm = true
+                            }
+                            SuggestionAction.VIEW_LOGS -> {
+                                scope.launch {
+                                    val result = sshManager.executeCommand(
+                                        "cat /data/community/crashes/error.log 2>/dev/null || echo '暂无错误日志'"
+                                    )
+                                    exportResult = "错误日志：\n${result.getOrElse { it.message ?: "读取失败" }}"
+                                    showExportDialog = true
+                                }
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                ) {
+                    Text(s.actionLabel)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSuggestionDialog = false }) {
+                    Text("关闭")
                 }
             }
         )
@@ -503,12 +620,13 @@ private fun FeatureCard(
 }
 
 @Composable
-private fun SuggestionItem(suggestion: Suggestion) {
+private fun SuggestionItem(suggestion: Suggestion, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(suggestion.bgColor)
+            .clickable(onClick = onClick)
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -541,12 +659,17 @@ private fun SuggestionItem(suggestion: Suggestion) {
     }
 }
 
+private enum class SuggestionAction { CHECK, CLEANUP, VIEW_LOGS }
+
 private data class Suggestion(
     val title: String,
     val description: String,
     val icon: ImageVector,
     val iconColor: androidx.compose.ui.graphics.Color,
-    val bgColor: androidx.compose.ui.graphics.Color
+    val bgColor: androidx.compose.ui.graphics.Color,
+    val detailText: String = "",
+    val actionType: SuggestionAction = SuggestionAction.CHECK,
+    val actionLabel: String = "立即体检"
 )
 
 private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Suggestion> {
@@ -557,8 +680,10 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "设备健康度较低",
                 "检测到多项指标异常，建议立即体检并处理异常项。",
                 Icons.Default.Warning,
-                Red500,
-                Red100
+                Red500, Red100,
+                detailText = "健康分仅 ${healthScore}/100。请点击下方按钮进行全面体检，查看 CPU 温度、内存占用、存储空间及服务运行状态等详细指标。",
+                actionType = SuggestionAction.CHECK,
+                actionLabel = "立即体检"
             )
         )
         healthScore < 80 -> list.add(
@@ -566,8 +691,10 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "建议定期清理缓存",
                 "清理系统无关日志以节省空间。当前存储剩余 ${status.storageFree}。",
                 Icons.Default.CleaningServices,
-                Amber500,
-                Amber100
+                Amber500, Amber100,
+                detailText = "健康分 ${healthScore}/100，存在优化空间。系统缓存、过期日志会占用存储空间并拖慢系统响应速度。点击下方按钮执行一键清理。\n\n当前存储：${status.storageFree}\n内存占用：${status.memoryUsage}%\nCPU 温度：${status.cpuTemp}°C",
+                actionType = SuggestionAction.CLEANUP,
+                actionLabel = "一键清理"
             )
         )
         else -> list.add(
@@ -575,8 +702,10 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "未发现关键服务异常",
                 "openpilot 服务与 Panda 通信均正常。",
                 Icons.Default.CheckCircle,
-                Green500,
-                Green100
+                Green500, Green100,
+                detailText = "健康分 ${healthScore}/100，各项指标正常。openpilot 进程正在运行，设备状态良好。建议定期进行体检以保持最佳性能。",
+                actionType = SuggestionAction.CHECK,
+                actionLabel = "重新体检"
             )
         )
     }
@@ -587,17 +716,21 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "内存占用较高",
                 "当前内存占用 ${status.memoryUsage}%，建议清理后台或释放缓存。",
                 Icons.Default.Memory,
-                Red500,
-                Red100
+                Red500, Red100,
+                detailText = "内存占用已达到 ${status.memoryUsage}%，接近满载。高内存占用会导致 openpilot 进程响应变慢，甚至触发 OOM (Out of Memory) 强制终止关键进程。\n\n建议立即执行垃圾清理，释放系统缓存和过期日志文件。",
+                actionType = SuggestionAction.CLEANUP,
+                actionLabel = "释放内存"
             )
         )
         status.memoryUsage > 70 -> list.add(
             Suggestion(
-                "当前空间充足",
-                "内存占用 ${status.memoryUsage}%，运行空间充裕。",
+                "建议适度清理缓存",
+                "内存占用 ${status.memoryUsage}%，建议定期释放系统缓存以保持流畅。",
                 Icons.Default.Storage,
-                Blue500,
-                Blue100
+                Amber500, Amber100,
+                detailText = "内存占用 ${status.memoryUsage}%，处于中等水平。虽然当前运行稳定，但建议定期清理防止积累到高水位。点击下方按钮执行清理。",
+                actionType = SuggestionAction.CLEANUP,
+                actionLabel = "清理缓存"
             )
         )
         else -> list.add(
@@ -605,8 +738,10 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "当前空间充足",
                 "内存占用 ${status.memoryUsage}%，运行空间充裕。",
                 Icons.Default.Storage,
-                Blue500,
-                Blue100
+                Blue500, Blue100,
+                detailText = "内存占用仅 ${status.memoryUsage}%，系统有充足的运行空间，openpilot 各项功能可以顺畅运行。无需特别操作。",
+                actionType = SuggestionAction.CHECK,
+                actionLabel = "查看详情"
             )
         )
     }
@@ -617,17 +752,21 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "设备温度过高",
                 "当前 ${status.cpuTemp}°C，系统散热可能不足，建议停车降温。",
                 Icons.Default.Thermostat,
-                Red500,
-                Red100
+                Red500, Red100,
+                detailText = "CPU 温度 ${status.cpuTemp}°C，已超过安全阈值 (80°C)。高温会触发 CPU 降频保护，导致 openpilot 处理能力下降，影响自动驾驶性能。\n\n建议：\n1. 将车辆停放在阴凉处\n2. 确认 C3 散热风扇正常工作\n3. 暂停使用非必要的后台功能",
+                actionType = SuggestionAction.CLEANUP,
+                actionLabel = "清理降温"
             )
         )
         status.cpuTemp > 70 -> list.add(
             Suggestion(
-                "设备温度正常",
-                "当前 ${status.cpuTemp}°C，系统散热平稳，继续保持。",
+                "设备温度略高",
+                "当前 ${status.cpuTemp}°C，温度偏高但仍在安全范围。",
                 Icons.Default.Thermostat,
-                Amber500,
-                Amber100
+                Amber500, Amber100,
+                detailText = "CPU 温度 ${status.cpuTemp}°C，处于偏高区间。虽然尚未触发降频保护，但建议注意通风散热，避免持续高温运行。\n\n可通过清理内存和缓存进程来降低 CPU 负载，从而辅助降温。",
+                actionType = SuggestionAction.CHECK,
+                actionLabel = "查看状态"
             )
         )
         else -> list.add(
@@ -635,8 +774,10 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "设备温度正常",
                 "当前 ${status.cpuTemp}°C，系统散热平稳，继续保持。",
                 Icons.Default.Thermostat,
-                Green500,
-                Green100
+                Green500, Green100,
+                detailText = "CPU 温度 ${status.cpuTemp}°C，处于最佳工作区间。散热系统运行正常，openpilot 可在全性能模式下运行。",
+                actionType = SuggestionAction.CHECK,
+                actionLabel = "查看详情"
             )
         )
     }
@@ -676,16 +817,52 @@ private fun calculateHealthScore(status: DeviceStatus): Pair<Int, String> {
     return score to label
 }
 
-private suspend fun runCleanup(sshManager: SshManager, onResult: (String) -> Unit) {
-    val commands = listOf(
-        "echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null",
-        "find /data/log -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true",
-        "find /tmp -type f -atime +1 -delete 2>/dev/null || true"
-    ).joinToString("; ")
-    sshManager.executeCommand(commands).fold(
-        onSuccess = { onResult("清理完成：系统缓存已释放，过期日志已清理。") },
+@Composable
+private fun CleanupItemDesc(title: String, desc: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Slate100)
+            .padding(12.dp)
+    ) {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = Slate900, fontWeight = FontWeight.SemiBold)
+        Text(desc, style = MaterialTheme.typography.bodySmall, color = Slate600)
+    }
+}
+
+private suspend fun runCleanupDetailed(sshManager: SshManager, onResult: (String) -> Unit) {
+    val script = """
+echo "===== 清理前状态 ====="
+BEFORE_MEM=${'$'}(free -m | grep Mem | awk '{print ${'$'}3}')
+echo "内存使用: ${'$'}BEFORE_MEM MB / ${'$'}(free -m | grep Mem | awk '{print ${'$'}2}') MB"
+echo "过期日志文件: ${'$'}(find /data/log -maxdepth 1 -type f -mtime +7 2>/dev/null | wc -l) 个"
+echo "临时文件: ${'$'}(find /tmp -type f -atime +1 2>/dev/null | wc -l) 个"
+echo ""
+echo "===== 执行清理 ====="
+echo " [1/3] 释放内存缓存..."
+echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null && echo "  > 内核缓存释放完成" || echo "  > 释放失败（可能无 sudo 权限）"
+echo " [2/3] 删除过期日志（7天前）..."
+find /data/log -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null && echo "  > 过期日志已删除" || echo "  > 无过期日志，跳过"
+echo " [3/3] 清理临时文件（1天前未访问）..."
+find /tmp -type f -atime +1 -delete 2>/dev/null && echo "  > 临时文件已删除" || echo "  > 无临时文件，跳过"
+echo ""
+echo "===== 清理后状态 ====="
+AFTER_MEM=${'$'}(free -m | grep Mem | awk '{print ${'$'}3}')
+echo "内存使用: ${'$'}AFTER_MEM MB / ${'$'}(free -m | grep Mem | awk '{print ${'$'}2}') MB"
+FREED=${'$'}((${BEFORE_MEM:-0} - ${AFTER_MEM:-0}))
+echo "释放内存: ${'$'}FREED MB"
+echo "剩余过期日志: ${'$'}(find /data/log -maxdepth 1 -type f -mtime +7 2>/dev/null | wc -l) 个"
+echo "剩余临时文件: ${'$'}(find /tmp -type f -atime +1 2>/dev/null | wc -l) 个"
+    """.trimIndent()
+    sshManager.executeCommand(script).fold(
+        onSuccess = { onResult(it) },
         onFailure = { onResult("清理失败：${it.message}") }
     )
+}
+
+private suspend fun runCleanup(sshManager: SshManager, onResult: (String) -> Unit) {
+    runCleanupDetailed(sshManager, onResult)
 }
 
 private suspend fun exportLogs(sshManager: SshManager, onResult: (String) -> Unit) {

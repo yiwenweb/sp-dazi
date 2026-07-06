@@ -283,7 +283,7 @@ class SshManager {
             "cat /proc/sys/kernel/hostname",
             "cat /data/params/d/HardwareSerial 2>/dev/null || echo unknown",
             "cat /data/params/d/DongleId 2>/dev/null || echo unknown",
-            "ps -A | grep -E 'manager|openpilot' | grep -v grep | wc -l"
+            "ps -A | grep '/data/openpilot/system/manager' | grep -v grep | wc -l"
         )
         val script = commands.joinToString("; echo '---'; ")
         executeCommand(script).map { output ->
