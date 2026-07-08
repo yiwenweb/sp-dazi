@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -107,7 +108,9 @@ fun VideoScreen(
         Spacer(Modifier.height(16.dp))
 
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds(),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -211,8 +214,7 @@ private fun VideoCard(
         color = Color.White,
         shadowElevation = 4.dp,
         modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 10f)
+            .fillMaxSize()
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
