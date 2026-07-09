@@ -146,18 +146,32 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             return@withContext Result.success(0)
         }
 
-        // Step 3: 执行统计脚本，捕获 stdout 输出
+        // Step 3: 执行统计脚本，捕获输出
         // C3 上 openpilot 的 Python 依赖装在 /usr/local/venv/ 下（非系统 python3），
         // 必须用 venv 的 python 否则导入 LogReader（需 zstandard / capnp）会失败
+        // 注意：SshManager 会自动合并 stdout+stderr，因此必须从混合输出中提取 JSON
         val rawOutput = sshManager.executeCommand(
-            "/usr/local/venv/bin/python /data/openpilot/${C3_SCRIPT} 2>&1"
+            "/usr/local/venv/bin/python /data/openpilot/${C3_SCRIPT}"
         ).getOrElse {
             return@withContext Result.failure(Exception("脚本执行失败: ${it.message}"))
         }
 
-        // Step 4: 解析 JSON 数组 → DriveStats 列表
+        // Step 4: 从输出中提取 JSON 数组（免疫 stderr 后缀干扰）
+        val jsonStr = runCatching {
+            val t = rawOutput.trim()
+            val start = t.indexOf('[')
+            val end = t.lastIndexOf(']')
+            if (start < 0 || end <= start) throw Exception("输出中未找到 JSON 数组")
+            t.substring(start, end + 1)
+        }.getOrElse {
+            return@withContext Result.failure(
+                Exception("解析统计结果失败。原始输出: ${rawOutput.take(300)}")
+            )
+        }
+
+        // Step 5: 解析 JSON 数组 → DriveStats 列表
         runCatching {
-            val array = JSONArray(rawOutput.trim())
+            val array = JSONArray(jsonStr)
             if (array.length() == 0) {
                 return@withContext Result.success(0)
             }
@@ -168,14 +182,14 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
                 stats.add(parseJsonToDriveStats(obj))
             }
 
-            // Step 5: 全量替换（清除旧数据，写入新数据）
+            // Step 6: 全量替换（清除旧数据，写入新数据）
             dao.clear()
             dao.insertAll(stats)
 
             return@withContext Result.success(stats.size)
         }.onFailure { e ->
             return@withContext Result.failure(
-                Exception("解析统计结果失败。脚本输出（前300字符）: ${rawOutput.trim().take(300)}")
+                Exception("解析统计结果失败: ${e.message}. 原始输出: ${rawOutput.take(300)}")
             )
         }
     }
