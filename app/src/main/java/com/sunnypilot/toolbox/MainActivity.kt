@@ -28,6 +28,7 @@ import com.sunnypilot.toolbox.ui.screens.RecorderScreen
 import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
 import com.sunnypilot.toolbox.ui.screens.VideoScreen
+import com.sunnypilot.toolbox.ui.screens.FileScreen
 import com.sunnypilot.toolbox.ui.theme.Background
 import com.sunnypilot.toolbox.ui.theme.SunnyPilotToolboxTheme
 import kotlinx.coroutines.flow.first
@@ -182,6 +183,9 @@ fun MainScreen(
                             sshManager = sshManager
                         )
                         NavItem.Video -> VideoScreen(
+                            sshManager = sshManager
+                        )
+                        NavItem.Files -> FileScreen(
                             sshManager = sshManager
                         )
                         else -> DeviceManagerScreen(

@@ -1,0 +1,478 @@
+package com.sunnypilot.toolbox.ui.screens
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.sunnypilot.toolbox.data.SshManager
+import com.sunnypilot.toolbox.data.repository.FileRepository
+import com.sunnypilot.toolbox.model.FileEntry
+import com.sunnypilot.toolbox.ui.theme.*
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FileScreen(
+    sshManager: SshManager,
+    initialPath: String = "/",
+    modifier: Modifier = Modifier
+) {
+    val repo = remember { FileRepository(sshManager) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    var currentPath by remember { mutableStateOf(initialPath) }
+    var entries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    // 搜索状态
+    var isSearching by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<FileEntry>?>(null) }
+
+    // 预览/操作弹窗
+    var selectedFile by remember { mutableStateOf<FileEntry?>(null) }
+    var showPreview by remember { mutableStateOf(false) }
+    var previewContent by remember { mutableStateOf("") }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showFileInfo by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+
+    fun loadDir(path: String) {
+        scope.launch {
+            isLoading = true
+            errorMsg = null
+            repo.listFiles(path).fold(
+                onSuccess = { entries = it },
+                onFailure = { errorMsg = it.message }
+            )
+            isLoading = false
+        }
+    }
+
+    fun doSearch(query: String) {
+        scope.launch {
+            isLoading = true
+            searchResults = null
+            repo.searchFiles(query, currentPath).fold(
+                onSuccess = {
+                    searchResults = it
+                    if (it.isEmpty()) errorMsg = "未找到匹配的文件"
+                },
+                onFailure = { errorMsg = it.message }
+            )
+            isLoading = false
+        }
+    }
+
+    LaunchedEffect(currentPath) { loadDir(currentPath) }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // ── 导航栏：面包屑 + 搜索切换 ──
+        Surface(
+            shape = RoundedCornerShape(0.dp, 0.dp, 16.dp, 16.dp),
+            color = Panel,
+            shadowElevation = 2.dp
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 后退按钮
+                    if (currentPath != "/" && !isSearching) {
+                        IconButton(onClick = {
+                            val parent = currentPath.substringBeforeLast("/", "/").let {
+                                if (it.isEmpty()) "/" else it
+                            }
+                            currentPath = parent
+                        }) {
+                            Icon(Icons.Default.ArrowBack, "返回", tint = Slate700)
+                        }
+                    }
+
+                    // 面包屑或搜索
+                    if (isSearching) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("搜索文件…", color = Slate400, fontSize = 14.sp) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                doSearch(searchQuery)
+                                isSearching = false
+                            }),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Teal500,
+                                unfocusedBorderColor = Slate200
+                            ),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    searchQuery = ""
+                                    isSearching = false
+                                    searchResults = null
+                                    errorMsg = null
+                                }) {
+                                    Icon(Icons.Default.Close, "取消搜索", tint = Slate500)
+                                }
+                            }
+                        )
+                    } else {
+                        Breadcrumb(
+                            path = currentPath,
+                            onNavigate = { currentPath = it }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // 搜索按钮
+                    IconButton(onClick = {
+                        isSearching = !isSearching
+                        if (!isSearching) {
+                            searchResults = null
+                            errorMsg = null
+                        }
+                    }) {
+                        Icon(
+                            if (isSearching) Icons.Default.Close else Icons.Default.Search,
+                            "搜索",
+                            tint = if (isSearching) Red500 else Teal500
+                        )
+                    }
+
+                    // 刷新
+                    IconButton(onClick = { loadDir(currentPath) }) {
+                        Icon(Icons.Default.Refresh, "刷新", tint = Teal500)
+                    }
+
+                    // 跳转到 /data
+                    IconButton(onClick = { currentPath = "/data" }) {
+                        Icon(Icons.Default.FolderOpen, "/data", tint = Amber500)
+                    }
+                }
+
+                // 搜索结果标签
+                if (searchResults != null) {
+                    Text(
+                        "搜索「$searchQuery」: ${searchResults?.size ?: 0} 个结果",
+                        fontSize = 12.sp,
+                        color = Slate500
+                    )
+                }
+                if (errorMsg != null && !isLoading) {
+                    Text(errorMsg!!, fontSize = 12.sp, color = Red500)
+                }
+            }
+        }
+
+        // ── 文件列表 ──
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            if (isLoading) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Teal500, strokeWidth = 3.dp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("加载中…", color = Slate500, fontSize = 13.sp)
+                    }
+                }
+            } else {
+                val displayList = searchResults ?: entries
+                if (displayList.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.FolderOff, null, tint = Slate400, modifier = Modifier.size(48.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("此目录为空", color = Slate500)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(displayList, key = { it.path }) { entry ->
+                            FileItemRow(
+                                entry = entry,
+                                onClick = {
+                                    if (entry.isDirectory) {
+                                        currentPath = entry.path
+                                        searchResults = null
+                                    } else {
+                                        selectedFile = entry
+                                        scope.launch {
+                                            previewContent = repo.getFilePreview(entry.path).getOrElse("无法读取文件")
+                                            showPreview = true
+                                        }
+                                    }
+                                },
+                                onDelete = {
+                                    selectedFile = entry
+                                    showDeleteConfirm = true
+                                },
+                                onInfo = {
+                                    selectedFile = entry
+                                    showFileInfo = true
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── 文件预览对话框 ──
+    if (showPreview && selectedFile != null) {
+        AlertDialog(
+            onDismissRequest = { showPreview = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FileTypeIcon(selectedFile!!, size = 20)
+                    Spacer(Modifier.width(8.dp))
+                    Text(selectedFile!!.name, fontWeight = FontWeight.Bold, color = Slate900)
+                }
+            },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        previewContent,
+                        fontSize = 12.sp,
+                        color = Slate700,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPreview = false }) { Text("关闭", color = Teal500) } },
+            dismissButton = {}
+        )
+    }
+
+    // ── 删除确认 ──
+    if (showDeleteConfirm && selectedFile != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("确认删除", fontWeight = FontWeight.Bold, color = Red500) },
+            text = {
+                Column {
+                    Text("确定删除？", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(selectedFile!!.name, fontSize = 14.sp, color = Slate600)
+                    if (selectedFile!!.isDirectory) {
+                        Text("（目录及其所有内容将被递归删除）", fontSize = 12.sp, color = Red500)
+                    }
+                    if (isDeleting) {
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(color = Red500, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isDeleting = true
+                            val f = selectedFile!!
+                            repo.deleteFile(f.path, f.isDirectory).fold(
+                                onSuccess = {
+                                    showDeleteConfirm = false
+                                    loadDir(currentPath)
+                                },
+                                onFailure = { errorMsg = it.message }
+                            )
+                            isDeleting = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Red500),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") } }
+        )
+    }
+
+    // ── 文件信息 ──
+    if (showFileInfo && selectedFile != null) {
+        val f = selectedFile!!
+        AlertDialog(
+            onDismissRequest = { showFileInfo = false },
+            title = { Text("文件信息", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    InfoRow("名称", f.name)
+                    InfoRow("路径", f.path)
+                    InfoRow("类型", if (f.isDirectory) "目录" else "文件")
+                    InfoRow("大小", f.sizeHuman)
+                    InfoRow("修改时间", f.lastModified)
+                    InfoRow("权限", f.permissions)
+                    if (f.isSymlink) InfoRow("符号链接", "是")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showFileInfo = false }) { Text("关闭", color = Teal500) } }
+        )
+    }
+}
+
+// ── 面包屑导航 ──
+@Composable
+private fun Breadcrumb(path: String, onNavigate: (String) -> Unit) {
+    val parts = path.split("/").filter { it.isNotBlank() }
+    Row(
+        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 根目录
+        Text(
+            "/",
+            color = Teal500,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            modifier = Modifier.clickable { onNavigate("/") }
+        )
+        parts.forEachIndexed { i, part ->
+            Text("/", color = Slate400, fontSize = 13.sp)
+            val fullPath = "/" + parts.take(i + 1).joinToString("/")
+            Text(
+                part,
+                color = if (i == parts.lastIndex) Slate900 else Teal500,
+                fontWeight = if (i == parts.lastIndex) FontWeight.SemiBold else FontWeight.Normal,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (i < parts.lastIndex) Modifier.clickable { onNavigate(fullPath) } else Modifier
+            )
+        }
+    }
+}
+
+// ── 文件列表行 ──
+@Composable
+private fun FileItemRow(
+    entry: FileEntry,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onInfo: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Panel,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FileTypeIcon(entry)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    entry.name,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    color = Slate900,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        if (entry.isDirectory) "" else entry.sizeHuman,
+                        fontSize = 12.sp,
+                        color = Slate500
+                    )
+                    if (entry.lastModified.isNotBlank()) {
+                        Text(entry.lastModified, fontSize = 12.sp, color = Slate400)
+                    }
+                }
+            }
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, "操作", tint = Slate500, modifier = Modifier.size(20.dp))
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("信息", fontSize = 13.sp) },
+                        onClick = { showMenu = false; onInfo() },
+                        leadingIcon = { Icon(Icons.Default.Info, null, modifier = Modifier.size(18.dp)) }
+                    )
+                    if (!entry.isDirectory) {
+                        DropdownMenuItem(
+                            text = { Text("预览", fontSize = 13.sp) },
+                            onClick = { showMenu = false; onClick() },
+                            leadingIcon = { Icon(Icons.Default.Visibility, null, modifier = Modifier.size(18.dp)) }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("删除", fontSize = 13.sp, color = Red500) },
+                        onClick = { showMenu = false; onDelete() },
+                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = Red500, modifier = Modifier.size(18.dp)) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── 文件类型图标 ──
+@Composable
+private fun FileTypeIcon(entry: FileEntry, size: Int = 40) {
+    val (icon, color, bg) = when (entry.icon) {
+        "folder" -> Triple(Icons.Default.Folder, Amber500, Amber100)
+        "image" -> Triple(Icons.Default.Image, Purple500, Purple100)
+        "video" -> Triple(Icons.Default.Videocam, Red500, Red100)
+        "audio" -> Triple(Icons.Default.AudioFile, Blue500, Blue100)
+        "archive" -> Triple(Icons.Default.Archive, Orange500, Orange100)
+        "code" -> Triple(Icons.Default.Code, Teal500, Teal50)
+        "doc" -> Triple(Icons.Default.Article, Blue500, Blue100)
+        "config" -> Triple(Icons.Default.Settings, Slate600, Slate200)
+        else -> Triple(Icons.Default.InsertDriveFile, Slate500, Slate100)
+    }
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, null, tint = color, modifier = Modifier.size((size * 0.6).dp))
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row {
+        Text("$label: ", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Slate700, modifier = Modifier.width(70.dp))
+        Text(value, fontSize = 13.sp, color = Slate600)
+    }
+}

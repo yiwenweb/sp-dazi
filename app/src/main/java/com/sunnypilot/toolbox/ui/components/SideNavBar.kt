@@ -29,7 +29,7 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     Recorder("记录仪预览", Icons.Default.VideoLibrary, true),
     Settings("驾驶设置", Icons.Default.Settings, true),
     Video("视频预览", Icons.Default.Videocam, true),
-    Files("文件", Icons.Default.Folder),
+    Files("文件", Icons.Default.Folder, true),
     Calc("智能计算", Icons.Default.Calculate, true),
     Shortcuts("一键下发", Icons.Default.Send),
     Share("分享中心", Icons.Default.Share),
