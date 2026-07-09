@@ -112,10 +112,10 @@ fun DataCenterScreen(
     }
 
     LaunchedEffect(Unit) {
-        // 首次没有数据时插入示例数据，方便看效果
+        // 首次进入自动尝试从 C3 同步（先检查是否有本地数据，无数据才自动同步）
         val all = repository.getAll()
-        if (all.isEmpty()) {
-            repository.insertSampleData()
+        if (all.isEmpty() && sshManager.isConnected()) {
+            syncFromDevice()
         }
         loadStats()
     }

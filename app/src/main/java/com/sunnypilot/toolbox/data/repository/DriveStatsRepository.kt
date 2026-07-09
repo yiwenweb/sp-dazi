@@ -19,8 +19,34 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 驾驶统计数据 Repository。
+ *
+ * 数据来源：通过 SSH 调用 C3 端的 calc_drive_stats.py，
+ * 从 qlog 中解析真实行驶数据并写入本地 Room 数据库。
+ */
 class DriveStatsRepository(context: Context, private val sshManager: SshManager) {
     private val dao: DriveStatsDao = AppDatabase.getDatabase(context).driveStatsDao()
+
+    /**
+     * C3 端统计脚本路径（也复制到 /data/openpilot/c3_scripts/ 下同步用）。
+     */
+    companion object {
+        private const val C3_SCRIPT = "c3_scripts/calc_drive_stats.py"
+        private const val C3_REALDATA = "/data/media/0/realdata"
+
+        fun dateRange(days: Int): Pair<String, String> {
+            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val end = Date()
+            val cal = Calendar.getInstance().apply {
+                time = end
+                add(Calendar.DAY_OF_YEAR, -days + 1)
+            }
+            return fmt.format(cal.time) to fmt.format(end)
+        }
+    }
+
+
 
 
     suspend fun getAll(): List<DriveStats> = withContext(Dispatchers.IO) {
@@ -98,69 +124,57 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         if (!sshManager.isConnected()) {
             return@withContext Result.failure(IllegalStateException("未连接 C3"))
         }
-        // TODO: 后续对接 C3 qlog 真实解析，当前先同步 segment 列表作为占位
-        val result = sshManager.executeCommand(
-            "ls /data/media/0/realdata/ 2>/dev/null | head -20 || echo ''"
-        )
-        result.map { 0 }
-    }
 
-    suspend fun exportToJson(context: Context, start: String, end: String): Uri = withContext(Dispatchers.IO) {
-        val list = dao.getBetween(start, end)
-        val text = JSONArray(list.map { it.toJson() }).toString(2)
-        val file = File(context.cacheDir, "drive_stats_${start}_${end}.json")
-        FileWriter(file).use { it.write(text) }
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    }
+        // Step 1: 确保脚本存在（若缺失则尝试从 /data/openpilot/ 复制）
+        val checkScript = sshManager.executeCommand(
+            "test -f /data/openpilot/${C3_SCRIPT} && echo 'OK' || echo 'MISSING'"
+        ).getOrElse { return@withContext Result.failure(Exception("SSH 通信失败")) }
 
-    suspend fun importFromJson(context: Context, uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
+        if (checkScript.trim() == "MISSING") {
+            return@withContext Result.failure(
+                IllegalStateException("C3 上缺少 ${C3_SCRIPT}，请先部署脚本到 /data/openpilot/c3_scripts/")
+            )
+        }
+
+        // Step 2: 检查是否有 segment 数据
+        val hasData = sshManager.executeCommand(
+            "ls ${C3_REALDATA}/*--* 2>/dev/null | head -1 || echo ''"
+        ).getOrElse { "" }
+
+        if (hasData.trim().isEmpty()) {
+            // 无行车数据，返回 0 但不视为失败
+            return@withContext Result.success(0)
+        }
+
+        // Step 3: 执行统计脚本，捕获 stdout JSON
+        val jsonOutput = sshManager.executeCommand(
+            "cd /data/openpilot && python3 ${C3_SCRIPT}"
+        ).getOrElse { return@withContext Result.failure(Exception("统计脚本执行失败")) }
+
+        // Step 4: 解析 JSON 数组 → DriveStats 列表
         try {
-            val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: return@withContext Result.failure(IllegalStateException("无法读取文件"))
-            val array = JSONArray(text)
+            val array = JSONArray(jsonOutput.trim())
+            if (array.length() == 0) {
+                return@withContext Result.success(0)
+            }
+
             val stats = mutableListOf<DriveStats>()
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                stats.add(parseDriveStats(obj))
+                stats.add(parseJsonToDriveStats(obj))
             }
+
+            // Step 5: 全量替换（清除旧数据，写入新数据）
+            dao.clear()
             dao.insertAll(stats)
-            Result.success(stats.size)
+
+            return@withContext Result.success(stats.size)
         } catch (e: Exception) {
-            Result.failure(e)
+            return@withContext Result.failure(Exception("解析统计结果失败: ${e.message}"))
         }
     }
 
-    suspend fun insertSampleData() = withContext(Dispatchers.IO) {
-        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val today = Date()
-        val cal = Calendar.getInstance()
-        val sample = List(30) { index ->
-            cal.time = today
-            cal.add(Calendar.DAY_OF_YEAR, -index)
-            val date = fmt.format(cal.time)
-            val total = (20f + kotlin.random.Random.nextFloat() * 80f)
-            val assisted = total * (0.3f + kotlin.random.Random.nextFloat() * 0.5f)
-            DriveStats(
-                date = date,
-                totalDistanceKm = total,
-                assistedDistanceKm = assisted,
-                manualDistanceKm = total - assisted,
-                durationMinutes = (total * 1.2f).toInt(),
-                takeovers = kotlin.random.Random.nextInt(0, 20),
-                collisionWarning = kotlin.random.Random.nextInt(0, 3),
-                tailgating = kotlin.random.Random.nextInt(0, 10),
-                leadCarStationary = kotlin.random.Random.nextInt(0, 30),
-                leadCarEmergencyBrake = kotlin.random.Random.nextInt(0, 8),
-                leadCarSlow = kotlin.random.Random.nextInt(0, 40),
-                startReminder = kotlin.random.Random.nextInt(0, 3),
-                laneChangeAssist = kotlin.random.Random.nextInt(0, 15),
-                safetyScore = 60 + kotlin.random.Random.nextInt(0, 35)
-            )
-        }
-        dao.insertAll(sample)
-    }
-
-    private fun parseDriveStats(obj: JSONObject): DriveStats {
+    private fun parseJsonToDriveStats(obj: JSONObject): DriveStats {
         return DriveStats(
             date = obj.getString("date"),
             totalDistanceKm = obj.optDouble("totalDistanceKm", 0.0).toFloat(),
@@ -179,12 +193,30 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         )
     }
 
-    companion object {
-        fun dateRange(days: Int): Pair<String, String> {
-            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val end = Date()
-            val cal = Calendar.getInstance().apply { time = end; add(Calendar.DAY_OF_YEAR, -days + 1) }
-            return fmt.format(cal.time) to fmt.format(end)
+
+
+    suspend fun exportToJson(context: Context, start: String, end: String): Uri = withContext(Dispatchers.IO) {
+        val list = dao.getBetween(start, end)
+        val text = JSONArray(list.map { it.toJson() }).toString(2)
+        val file = File(context.cacheDir, "drive_stats_${start}_${end}.json")
+        FileWriter(file).use { it.write(text) }
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
+
+    suspend fun importFromJson(context: Context, uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: return@withContext Result.failure(IllegalStateException("无法读取文件"))
+            val array = JSONArray(text)
+            val stats = mutableListOf<DriveStats>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                stats.add(parseJsonToDriveStats(obj))
+            }
+            dao.insertAll(stats)
+            Result.success(stats.size)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 }
