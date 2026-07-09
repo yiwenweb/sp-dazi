@@ -146,14 +146,17 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             return@withContext Result.success(0)
         }
 
-        // Step 3: 执行统计脚本，捕获 stdout JSON
-        val jsonOutput = sshManager.executeCommand(
-            "cd /data/openpilot && python3 ${C3_SCRIPT}"
-        ).getOrElse { return@withContext Result.failure(Exception("统计脚本执行失败")) }
+        // Step 3: 执行统计脚本，捕获 stdout 输出
+        val rawOutput = sshManager.executeCommand(
+            "cd /data/openpilot && python3 ${C3_SCRIPT} 2>&1"
+        ).getOrElse {
+            // SSH 连接异常
+            return@withContext Result.failure(Exception("脚本执行失败: ${it.message}"))
+        }
 
         // Step 4: 解析 JSON 数组 → DriveStats 列表
-        try {
-            val array = JSONArray(jsonOutput.trim())
+        runCatching {
+            val array = JSONArray(rawOutput.trim())
             if (array.length() == 0) {
                 return@withContext Result.success(0)
             }
@@ -169,8 +172,10 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             dao.insertAll(stats)
 
             return@withContext Result.success(stats.size)
-        } catch (e: Exception) {
-            return@withContext Result.failure(Exception("解析统计结果失败: ${e.message}"))
+        }.onFailure { e ->
+            return@withContext Result.failure(
+                Exception("解析统计结果失败。脚本输出（前300字符）: ${rawOutput.trim().take(300)}")
+            )
         }
     }
 
