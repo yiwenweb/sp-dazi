@@ -147,10 +147,11 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
 
         // Step 3: 执行统计脚本，捕获 stdout 输出
+        // C3 上 openpilot 的 Python 依赖装在 /usr/local/venv/ 下（非系统 python3），
+        // 必须用 venv 的 python 否则导入 LogReader（需 zstandard / capnp）会失败
         val rawOutput = sshManager.executeCommand(
-            "cd /data/openpilot && python3 ${C3_SCRIPT} 2>&1"
+            "/usr/local/venv/bin/python /data/openpilot/${C3_SCRIPT} 2>&1"
         ).getOrElse {
-            // SSH 连接异常
             return@withContext Result.failure(Exception("脚本执行失败: ${it.message}"))
         }
 
