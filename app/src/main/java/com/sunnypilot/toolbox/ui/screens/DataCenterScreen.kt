@@ -227,7 +227,7 @@ fun DataCenterScreen(
             },
             text = {
                 Column {
-                    Text("错误详情：", fontWeight = FontWeight.SemiBold, color = Slate800)
+                    Text("错误详情：", fontWeight = FontWeight.SemiBold, color = Slate700)
                     Spacer(modifier = Modifier.height(8.dp))
                     Surface(
                         shape = RoundedCornerShape(12.dp),
