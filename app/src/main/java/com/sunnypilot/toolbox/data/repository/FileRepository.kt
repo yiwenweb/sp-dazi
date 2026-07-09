@@ -23,16 +23,17 @@ class FileRepository(private val sshManager: SshManager) {
     suspend fun listFiles(path: String): Result<List<FileEntry>> = withContext(Dispatchers.IO) {
         val safe = shellEscape(path)
         val script = """
-            for f in $safe/*; do
-              [ -e "$$f" ] || continue
-              stat -c '%F|%s|%Y|%A|%n' "$$f" 2>/dev/null
+            base='${safe}'
+            for f in "${'$'}base"/*; do
+              [ -e "${'$'}f" ] || continue
+              stat -c '%F|%s|%Y|%A|%n' "${'$'}f" 2>/dev/null
             done
-            for f in $safe/.*; do
-              nm=$$(basename "$$f")
-              [ "$$nm" = "." ] && continue
-              [ "$$nm" = ".." ] && continue
-              [ -e "$$f" ] || continue
-              stat -c '%F|%s|%Y|%A|%n' "$$f" 2>/dev/null
+            for f in "${'$'}base"/.*; do
+              nm=${'$'}(basename "${'$'}f")
+              [ "${'$'}nm" = "." ] && continue
+              [ "${'$'}nm" = ".." ] && continue
+              [ -e "${'$'}f" ] || continue
+              stat -c '%F|%s|%Y|%A|%n' "${'$'}f" 2>/dev/null
             done
         """.trimIndent()
 
@@ -80,9 +81,11 @@ class FileRepository(private val sshManager: SshManager) {
         val sq = shellEscape(query)
         val base = shellEscape(basePath)
         val script = """
-            find $base -maxdepth 4 -iname '*$sq*' -not -path '*/\.*' 2>/dev/null |
+            base='${base}'
+            sq='${sq}'
+            find "${'$'}base" -maxdepth 4 -iname "*${'$'}sq*" -not -path '*/\.*' 2>/dev/null |
             head -200 | while read f; do
-              stat -c '%F|%s|%Y|%A|%n' "$$f" 2>/dev/null
+              stat -c '%F|%s|%Y|%A|%n' "${'$'}f" 2>/dev/null
             done
         """.trimIndent()
         sshManager.executeCommand(script).map { raw ->
