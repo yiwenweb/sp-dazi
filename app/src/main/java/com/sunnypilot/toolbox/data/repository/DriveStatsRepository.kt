@@ -58,8 +58,15 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         dao.getBetween(start, end)
     }
 
+    /** 检查单条记录是否物理上合理（防止损坏数据污染统计）*/
+    private fun isPlausible(s: DriveStats): Boolean {
+        val durH = s.durationMinutes / 60f
+        return !(durH > 0 && s.totalDistanceKm / durH > 150f)
+    }
+
     suspend fun aggregate(start: String, end: String): AggregatedStats = withContext(Dispatchers.IO) {
-        val list = dao.getBetween(start, end)
+        val raw = dao.getBetween(start, end)
+        val list = raw.filter { isPlausible(it) }
         val total = kotlin.math.round(list.sumOf { it.totalDistanceKm.toDouble() } * 10.0).toFloat() / 10f
         val assisted = kotlin.math.round(list.sumOf { it.assistedDistanceKm.toDouble() } * 10.0).toFloat() / 10f
         val manual = kotlin.math.round(list.sumOf { it.manualDistanceKm.toDouble() } * 10.0).toFloat() / 10f
