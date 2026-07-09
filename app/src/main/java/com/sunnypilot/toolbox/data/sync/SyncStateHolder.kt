@@ -7,6 +7,7 @@ import com.sunnypilot.toolbox.data.repository.DriveStatsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,7 +65,7 @@ object SyncStateHolder {
     fun getLatestStoredDate(context: Context): String? {
         return try {
             val dao = AppDatabase.getDatabase(context).driveStatsDao()
-            dao.getLatestDate()
+            runBlocking(Dispatchers.IO) { dao.getLatestDate() }
         } catch (_: Exception) { null }
     }
 
@@ -72,7 +73,7 @@ object SyncStateHolder {
     fun getEarliestStoredDate(context: Context): String? {
         return try {
             val dao = AppDatabase.getDatabase(context).driveStatsDao()
-            dao.getEarliestDate()
+            runBlocking(Dispatchers.IO) { dao.getEarliestDate() }
         } catch (_: Exception) { null }
     }
 

@@ -145,7 +145,8 @@ fun FileScreen(
                     } else {
                         Breadcrumb(
                             path = currentPath,
-                            onNavigate = { currentPath = it }
+                            onNavigate = { currentPath = it },
+                            modifier = Modifier.weight(1f)
                         )
                     }
 
@@ -341,10 +342,14 @@ fun FileScreen(
 
 // ── 面包屑导航 ──
 @Composable
-private fun Breadcrumb(path: String, onNavigate: (String) -> Unit) {
+private fun Breadcrumb(
+    path: String,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val parts = path.split("/").filter { it.isNotBlank() }
     Row(
-        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+        modifier = modifier.horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 根目录

@@ -66,18 +66,18 @@ fun DataCenterScreen(
     val syncError by SyncStateHolder.errorMessage.collectAsState()
     val syncedCount by SyncStateHolder.syncedCount.collectAsState()
 
+    fun loadStats() {
+        scope.launch {
+            val data = repository.aggregate(startDate, endDate)
+            stats = data
+        }
+    }
+
     // 同步完成后自动刷新显示
     LaunchedEffect(syncedCount) {
         if (syncedCount != null) {
             delay(600)
             loadStats()
-        }
-    }
-
-    fun loadStats() {
-        scope.launch {
-            val data = repository.aggregate(startDate, endDate)
-            stats = data
         }
     }
 
