@@ -287,7 +287,8 @@ class SshManager {
             "cat /proc/sys/kernel/hostname",
             "cat /data/params/d/HardwareSerial 2>/dev/null || echo unknown",
             "cat /data/params/d/DongleId 2>/dev/null || echo unknown",
-            "ps -A | grep '/data/openpilot/system/manager' | grep -v grep | wc -l"
+            "ps -A | grep '/data/openpilot/system/manager' | grep -v grep | wc -l",
+            "df -h /data/media/0 2>/dev/null | tail -1 | awk '{print $4}' || echo ''"
         )
         val script = commands.joinToString("; echo '---'; ")
         executeCommand(script).map { output ->
@@ -303,7 +304,8 @@ class SshManager {
                 "hostname" to (parts.getOrNull(7) ?: ""),
                 "serial" to (parts.getOrNull(8) ?: "unknown"),
                 "dongleId" to (parts.getOrNull(9) ?: "unknown"),
-                "openpilotProcesses" to (parts.getOrNull(10) ?: "0")
+                "openpilotProcesses" to (parts.getOrNull(10) ?: "0"),
+                "storageFreeSsd" to (parts.getOrNull(11) ?: "--")
             )
         }
     }

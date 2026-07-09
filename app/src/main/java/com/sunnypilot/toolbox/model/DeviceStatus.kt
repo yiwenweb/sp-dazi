@@ -10,6 +10,7 @@ data class DeviceStatus(
     val cpuLoad: Float = 0f,
     val memoryUsage: Int = 0,
     val storageFree: String = "--",
+    val storageFreeSsd: String = "--",
     val ipAddress: String = "",
     val serial: String = "",
     val stableId: String = "",

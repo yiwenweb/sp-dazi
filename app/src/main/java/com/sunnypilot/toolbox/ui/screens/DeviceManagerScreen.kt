@@ -176,11 +176,19 @@ fun DeviceManagerScreen(
                         modifier = Modifier.weight(1f)
                     )
                     MetricCard(
-                        label = "存储剩余",
+                        label = "内置存储",
                         value = status.storageFree,
                         icon = Icons.Default.Storage,
                         iconColor = Teal500,
                         bgColor = Teal50,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricCard(
+                        label = "外接固态",
+                        value = status.storageFreeSsd,
+                        icon = Icons.Default.SdStorage,
+                        iconColor = Blue500,
+                        bgColor = Blue100,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -892,6 +900,7 @@ private suspend fun refreshStatus(sshManager: SshManager, onResult: (DeviceStatu
                 cpuLoad = data["cpuLoad"]?.toFloatOrNull() ?: 0f,
                 memoryUsage = memoryUsage,
                 storageFree = data["storageFree"] ?: "--",
+                storageFreeSsd = data["storageFreeSsd"] ?: "--",
                 serial = data["serial"] ?: "unknown",
                 stableId = data["dongleId"] ?: "unknown",
                 isConnected = true,
