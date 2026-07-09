@@ -3,6 +3,7 @@ package com.sunnypilot.toolbox.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -228,7 +229,7 @@ fun FileScreen(
                                     } else {
                                         selectedFile = entry
                                         scope.launch {
-                                            previewContent = repo.getFilePreview(entry.path).getOrElse("无法读取文件")
+                                            previewContent = repo.getFilePreview(entry.path).getOrElse { "无法读取文件" }
                                             showPreview = true
                                         }
                                     }
