@@ -12,6 +12,10 @@ data class DriveStats(
     val assistedDistanceKm: Float = 0f,
     val manualDistanceKm: Float = 0f,
     val durationMinutes: Int = 0,
+    val assistedDurationMinutes: Int = 0,
+    val maxSpeedKmh: Float = 0f,
+    val longestDistanceKm: Float = 0f,
+    val longestSegmentMinutes: Int = 0,
     val takeovers: Int = 0,
     val collisionWarning: Int = 0,
     val tailgating: Int = 0,
@@ -29,6 +33,10 @@ data class DriveStats(
             put("assistedDistanceKm", assistedDistanceKm.toDouble())
             put("manualDistanceKm", manualDistanceKm.toDouble())
             put("durationMinutes", durationMinutes)
+            put("assistedDurationMinutes", assistedDurationMinutes)
+            put("maxSpeedKmh", maxSpeedKmh.toDouble())
+            put("longestDistanceKm", longestDistanceKm.toDouble())
+            put("longestSegmentMinutes", longestSegmentMinutes)
             put("takeovers", takeovers)
             put("collisionWarning", collisionWarning)
             put("tailgating", tailgating)
@@ -50,6 +58,7 @@ data class AggregatedStats(
     val assistedPercent: Int,
     val manualPercent: Int,
     val durationMinutes: Int,
+    val assistedDurationMinutes: Int = 0,
     val durationRatioPercent: Int,
     val safetyScore: Int,
     val takeovers: Int,

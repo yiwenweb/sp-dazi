@@ -63,6 +63,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         val assisted = list.sumOf { it.assistedDistanceKm.toDouble() }.toFloat()
         val manual = list.sumOf { it.manualDistanceKm.toDouble() }.toFloat()
         val duration = list.sumOf { it.durationMinutes }
+        val assistedDuration = list.sumOf { it.assistedDurationMinutes }
         val takeovers = list.sumOf { it.takeovers }
         val collision = list.sumOf { it.collisionWarning }
         val tailgating = list.sumOf { it.tailgating }
@@ -73,16 +74,19 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         val laneChange = list.sumOf { it.laneChangeAssist }
         val assistedPercent = if (total > 0) (assisted / total * 100).toInt() else 0
         val manualPercent = if (total > 0) (manual / total * 100).toInt() else 0
-        val durationRatioPercent = 14
+        val durationRatioPercent = if (duration > 0) (assistedDuration.toFloat() / duration * 100).toInt() else 0
         val score = calculateScore(list)
         val avgSpeed = if (duration > 0) total / (duration / 60f) else 0f
-        val maxSpeed = if (list.isNotEmpty()) list.maxOf { it.totalDistanceKm } else 0f
+        val maxSpeed = if (list.isNotEmpty()) list.maxOf { it.maxSpeedKmh } else 0f
+        val longestSingle = if (list.isNotEmpty()) list.maxOf { it.longestDistanceKm } else 0f
+        val longestSegment = if (list.isNotEmpty()) list.maxOf { it.longestSegmentMinutes } else 0
         val takeoversPerKkm = if (total > 0) takeovers / (total / 1000f) else 0f
         AggregatedStats(
             startDate = start,
             totalDistanceKm = total,
             assistedDistanceKm = assisted,
             manualDistanceKm = manual,
+            assistedDurationMinutes = assistedDuration,
             assistedPercent = assistedPercent,
             manualPercent = manualPercent,
             durationMinutes = duration,
@@ -96,8 +100,8 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             leadCarSlow = leadSlow,
             startReminder = startReminder,
             laneChangeAssist = laneChange,
-            longestSingleDistanceKm = maxSpeed,
-            continuousOpMinutes = duration / maxOf(list.size, 1),
+            longestSingleDistanceKm = longestSingle,
+            continuousOpMinutes = longestSegment,
             takeoversPerKkm = takeoversPerKkm,
             avgSpeedKmh = avgSpeed,
             maxSpeedKmh = maxSpeed
@@ -201,6 +205,10 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             assistedDistanceKm = obj.optDouble("assistedDistanceKm", 0.0).toFloat(),
             manualDistanceKm = obj.optDouble("manualDistanceKm", 0.0).toFloat(),
             durationMinutes = obj.optInt("durationMinutes", 0),
+            assistedDurationMinutes = obj.optInt("assistedDurationMinutes", 0),
+            maxSpeedKmh = obj.optDouble("maxSpeedKmh", 0.0).toFloat(),
+            longestDistanceKm = obj.optDouble("maxSegmentDistanceKm", 0.0).toFloat(),
+            longestSegmentMinutes = obj.optInt("longestSegmentMinutes", 0),
             takeovers = obj.optInt("takeovers", 0),
             collisionWarning = obj.optInt("collisionWarning", 0),
             tailgating = obj.optInt("tailgating", 0),

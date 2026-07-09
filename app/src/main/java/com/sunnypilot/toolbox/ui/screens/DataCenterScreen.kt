@@ -237,6 +237,7 @@ private fun SummaryPanel(
                 assistedPercent = 0,
                 manualPercent = 0,
                 durationMinutes = 0,
+                assistedDurationMinutes = 0,
                 durationRatioPercent = 0,
                 safetyScore = 0,
                 takeovers = 0,
@@ -252,7 +253,7 @@ private fun SummaryPanel(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 CircularStat("占总里程", s.assistedPercent, "${s.assistedDistanceKm} km", "驾驶辅助里程", Teal500)
                 CircularStat("人工占比", s.manualPercent, "${s.manualDistanceKm} km", "人工驾驶里程", Blue500)
-                CircularStat("占行驶时长", s.durationRatioPercent, formatDuration(s.durationMinutes), "智驾辅助时长", Amber500)
+                CircularStat("占行驶时长", s.durationRatioPercent, formatDuration(s.assistedDurationMinutes), "智驾辅助时长", Amber500)
                 CircularStat("安全评分", s.safetyScore, "${s.safetyScore} 分", "安全评分", Color(0xFFF59E0B))
             }
 
