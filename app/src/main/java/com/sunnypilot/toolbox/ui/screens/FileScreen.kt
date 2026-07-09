@@ -1,5 +1,12 @@
 package com.sunnypilot.toolbox.ui.screens
 
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -60,6 +67,48 @@ fun FileScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showFileInfo by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
+
+    // 编辑状态
+    var showEdit by remember { mutableStateOf(false) }
+    var editContent by remember { mutableStateOf("") }
+    var editFile by remember { mutableStateOf<FileEntry?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    // 重命名状态
+    var showRename by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<FileEntry?>(null) }
+    var renameNewName by remember { mutableStateOf("") }
+
+    // 新建目录状态
+    var showNewFolder by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
+
+    // 文件太大不可编辑的提示
+    var showEditTooLarge by remember { mutableStateOf(false) }
+    var tooLargeFile by remember { mutableStateOf<FileEntry?>(null) }
+
+    // 上传启动器
+    val uploadLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val fileName = getFileName(context, uri) ?: "uploaded_file"
+            val tempFile = java.io.File(context.cacheDir, fileName)
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                val remotePath = if (currentPath == "/") "/$fileName" else "$currentPath/$fileName"
+                repo.uploadFile(tempFile.absolutePath, remotePath).fold(
+                    onSuccess = { loadDir(currentPath) },
+                    onFailure = { errorMsg = "上传失败: ${it.message}" }
+                )
+            } finally {
+                tempFile.delete()
+            }
+        }
+    }
 
     fun loadDir(path: String) {
         scope.launch {
@@ -173,6 +222,16 @@ fun FileScreen(
                         Icon(Icons.Default.Refresh, "刷新", tint = Teal500)
                     }
 
+                    // 新建目录
+                    IconButton(onClick = { showNewFolder = true; newFolderName = "" }) {
+                        Icon(Icons.Default.CreateNewFolder, "新建目录", tint = Teal500)
+                    }
+
+                    // 上传文件
+                    IconButton(onClick = { uploadLauncher.launch("*/*") }) {
+                        Icon(Icons.Default.Upload, "上传文件", tint = Blue500)
+                    }
+
                     // 跳转到 /data
                     IconButton(onClick = { currentPath = "/data" }) {
                         Icon(Icons.Default.FolderOpen, "/data", tint = Amber500)
@@ -232,6 +291,37 @@ fun FileScreen(
                                             previewContent = repo.getFilePreview(entry.path).getOrElse { "无法读取文件" }
                                             showPreview = true
                                         }
+                                    }
+                                },
+                                onEdit = {
+                                    selectedFile = entry
+                                    if (entry.isEditable) {
+                                        scope.launch {
+                                            editContent = repo.readFileContent(entry.path).getOrElse { "读取失败" }
+                                            editFile = entry
+                                            showEdit = true
+                                        }
+                                    } else if (entry.isTextFile) {
+                                        tooLargeFile = entry
+                                        showEditTooLarge = true
+                                    }
+                                },
+                                onRename = {
+                                    renameTarget = entry
+                                    renameNewName = entry.name
+                                    showRename = true
+                                },
+                                onDownload = {
+                                    scope.launch {
+                                        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                                            ?: context.filesDir
+                                        val local = java.io.File(dir, entry.name)
+                                        repo.downloadFile(entry.path, local.absolutePath).fold(
+                                            onSuccess = {
+                                                Toast.makeText(context, "已下载到 ${local.absolutePath}", Toast.LENGTH_LONG).show()
+                                            },
+                                            onFailure = { errorMsg = "下载失败: ${it.message}" }
+                                        )
                                     }
                                 },
                                 onDelete = {
@@ -339,6 +429,156 @@ fun FileScreen(
             confirmButton = { TextButton(onClick = { showFileInfo = false }) { Text("关闭", color = Teal500) } }
         )
     }
+
+    // ── 编辑文件对话框 ──
+    if (showEdit && editFile != null) {
+        AlertDialog(
+            onDismissRequest = { if (!isSaving) { showEdit = false } },
+            title = { Text("编辑 ${editFile!!.name}", fontWeight = FontWeight.Bold, color = Slate900) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = editContent,
+                        onValueChange = { editContent = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 420.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 13.sp
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Teal500,
+                            unfocusedBorderColor = Slate200
+                        )
+                    )
+                    if (isSaving) {
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(color = Teal500, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isSaving = true
+                            repo.saveFile(editFile!!.path, editContent).fold(
+                                onSuccess = {
+                                    showEdit = false
+                                    Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                                },
+                                onFailure = { errorMsg = "保存失败: ${it.message}" }
+                            )
+                            isSaving = false
+                        }
+                    },
+                    enabled = !isSaving,
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal500),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEdit = false }, enabled = !isSaving) { Text("取消") }
+            }
+        )
+    }
+
+    // ── 文件过大提示 ──
+    if (showEditTooLarge && tooLargeFile != null) {
+        AlertDialog(
+            onDismissRequest = { showEditTooLarge = false },
+            title = { Text("文件过大", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("${tooLargeFile!!.name} 为 ${tooLargeFile!!.sizeHuman}，超过编辑上限 200KB。\n建议使用 WinSCP 等桌面工具编辑。")
+            },
+            confirmButton = {
+                TextButton(onClick = { showEditTooLarge = false }) { Text("知道了", color = Teal500) }
+            }
+        )
+    }
+
+    // ── 重命名对话框 ──
+    if (showRename && renameTarget != null) {
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text("重命名", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameNewName,
+                    onValueChange = { renameNewName = it },
+                    singleLine = true,
+                    label = { Text("新名称") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Teal500,
+                        unfocusedBorderColor = Slate200
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val t = renameTarget!!
+                            val parent = t.path.substringBeforeLast("/", "/")
+                            val newPath = if (parent == "/") "/$renameNewName" else "$parent/$renameNewName"
+                            repo.renameFile(t.path, newPath).fold(
+                                onSuccess = {
+                                    showRename = false
+                                    loadDir(currentPath)
+                                },
+                                onFailure = { errorMsg = "重命名失败: ${it.message}" }
+                            )
+                        }
+                    },
+                    enabled = renameNewName.isNotBlank() && renameNewName != renameTarget?.name,
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal500),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { showRename = false }) { Text("取消") } }
+        )
+    }
+
+    // ── 新建目录对话框 ──
+    if (showNewFolder) {
+        AlertDialog(
+            onDismissRequest = { showNewFolder = false },
+            title = { Text("新建目录", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    singleLine = true,
+                    label = { Text("目录名称") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Teal500,
+                        unfocusedBorderColor = Slate200
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val dirPath = if (currentPath == "/") "/$newFolderName" else "$currentPath/$newFolderName"
+                            repo.createDirectory(dirPath).fold(
+                                onSuccess = {
+                                    showNewFolder = false
+                                    loadDir(currentPath)
+                                },
+                                onFailure = { errorMsg = "创建失败: ${it.message}" }
+                            )
+                        }
+                    },
+                    enabled = newFolderName.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal500),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("创建") }
+            },
+            dismissButton = { TextButton(onClick = { showNewFolder = false }) { Text("取消") } }
+        )
+    }
 }
 
 // ── 面包屑导航 ──
@@ -382,6 +622,9 @@ private fun Breadcrumb(
 private fun FileItemRow(
     entry: FileEntry,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
+    onRename: () -> Unit,
+    onDownload: () -> Unit,
     onDelete: () -> Unit,
     onInfo: () -> Unit
 ) {
@@ -438,7 +681,24 @@ private fun FileItemRow(
                             onClick = { showMenu = false; onClick() },
                             leadingIcon = { Icon(Icons.Default.Visibility, null, modifier = Modifier.size(18.dp)) }
                         )
+                        if (entry.isEditable) {
+                            DropdownMenuItem(
+                                text = { Text("编辑", fontSize = 13.sp) },
+                                onClick = { showMenu = false; onEdit() },
+                                leadingIcon = { Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp)) }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("下载", fontSize = 13.sp) },
+                            onClick = { showMenu = false; onDownload() },
+                            leadingIcon = { Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp)) }
+                        )
                     }
+                    DropdownMenuItem(
+                        text = { Text("重命名", fontSize = 13.sp) },
+                        onClick = { showMenu = false; onRename() },
+                        leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, null, modifier = Modifier.size(18.dp)) }
+                    )
                     DropdownMenuItem(
                         text = { Text("删除", fontSize = 13.sp, color = Red500) },
                         onClick = { showMenu = false; onDelete() },
@@ -481,4 +741,21 @@ private fun InfoRow(label: String, value: String) {
         Text("$label: ", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Slate700, modifier = Modifier.width(70.dp))
         Text(value, fontSize = 13.sp, color = Slate600)
     }
+}
+
+/** 从 content URI 提取文件名 */
+private fun getFileName(context: Context, uri: Uri): String? {
+    var name: String? = null
+    if (uri.scheme == "file") {
+        name = uri.lastPathSegment?.substringAfterLast('/')
+    }
+    if (name == null) {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) name = cursor.getString(idx)
+            }
+        }
+    }
+    return name
 }

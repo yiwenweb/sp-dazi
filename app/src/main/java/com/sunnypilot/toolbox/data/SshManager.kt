@@ -275,6 +275,73 @@ class SshManager {
         }
     }
 
+    /** SFTP 通用操作：打开通道 → 执行 block → 自动关闭，防泄漏 */
+    suspend fun <T> withSftp(block: (ChannelSftp) -> T): Result<T> = withContext(Dispatchers.IO) {
+        val sess = session ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        var channel: ChannelSftp? = null
+        try {
+            channel = sess.openChannel("sftp") as ChannelSftp
+            channel.connect(10000)
+            Result.success(block(channel))
+        } catch (e: Exception) {
+            Log.e("SshManager", "SFTP op failed", e)
+            Result.failure(e)
+        } finally {
+            try { channel?.disconnect() } catch (_: Exception) {}
+        }
+    }
+
+    /** 上传本地文件到 C3 */
+    suspend fun uploadFile(localPath: String, remotePath: String): Result<Unit> = withSftp { it.put(localPath, remotePath) }
+
+    /** 将字符串写入远程文件（覆盖） */
+    suspend fun writeTextFile(remotePath: String, content: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            writeFile(remotePath, content.toByteArray(Charsets.UTF_8))
+        }
+
+    suspend fun writeFile(remotePath: String, data: ByteArray): Result<Unit> = withSftp { channel ->
+        channel.put(data.inputStream(), remotePath)
+    }
+
+    /** 创建远程目录 */
+    suspend fun createDirectory(remotePath: String): Result<Unit> = withSftp { it.mkdir(remotePath) }
+
+    /** 重命名/移动远程文件 */
+    suspend fun renameRemote(oldPath: String, newPath: String): Result<Unit> = withSftp { it.rename(oldPath, newPath) }
+
+    /** SFTP 递归删除目录（先清空子内容再 rmdir，仅文件 rm） */
+    suspend fun deleteRemote(path: String, isDir: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        val sess = session ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        var channel: ChannelSftp? = null
+        try {
+            channel = sess.openChannel("sftp") as ChannelSftp
+            channel.connect(10000)
+            if (!isDir) {
+                channel.rm(path)
+            } else {
+                fun ChannelSftp.deleteRecursive(p: String) {
+                    try { rm(p) } catch (_: Exception) {
+                        @Suppress("UNCHECKED_CAST")
+                        val entries = ls(p) as java.util.Vector<ChannelSftp.LsEntry>
+                        entries.filter { it.filename !in setOf(".", "..") }.forEach { e ->
+                            val child = if (p.endsWith("/")) "$p${e.filename}" else "$p/${e.filename}"
+                            if (e.attrs.isDir) deleteRecursive(child) else rm(child)
+                        }
+                        rmdir(p)
+                    }
+                }
+                channel.deleteRecursive(path)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("SshManager", "deleteRemote failed", e)
+            Result.failure(e)
+        } finally {
+            try { channel?.disconnect() } catch (_: Exception) {}
+        }
+    }
+
     suspend fun getDeviceStatus(): Result<Map<String, String>> = withContext(Dispatchers.IO) {
         val commands = listOf(
             "cat /proc/cpuinfo | grep 'Hardware' | head -1",
