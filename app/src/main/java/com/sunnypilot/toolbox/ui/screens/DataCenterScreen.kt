@@ -471,12 +471,13 @@ private fun EfficiencyPanel(stats: AggregatedStats?) {
             Spacer(modifier = Modifier.height(16.dp))
 
             val s3 = stats
+            fun fmt1(v: Float?) = String.format("%.1f", v ?: 0f)
             val efficiencyItems = listOf(
-                Triple("单次最长", "${s3?.longestSingleDistanceKm ?: 0f} km", Amber500),
-                Triple("连续 OP", formatDuration(s3?.continuousOpMinutes ?: 0), Teal500),
-                Triple("千公里接管", "${s3?.takeoversPerKkm ?: 0f}", Red500),
-                Triple("平均速度", "${s3?.avgSpeedKmh ?: 0f} km/h", Blue500),
-                Triple("最高速度", "${s3?.maxSpeedKmh ?: 0f} km/h", Blue500),
+                Triple("单次最长", "${fmt1(s3?.longestSingleDistanceKm)} km", Amber500),
+                Triple("持续最长", formatDuration(s3?.continuousOpMinutes ?: 0), Teal500),
+                Triple("千公里接管", "${s3?.takeoversPerKkm?.let { String.format("%.2f", it) } ?: "0.00"}", Red500),
+                Triple("平均速度", "${fmt1(s3?.avgSpeedKmh)} km/h", Blue500),
+                Triple("最高速度", "${fmt1(s3?.maxSpeedKmh)} km/h", Blue500),
                 Triple("总时长", formatDuration(s3?.durationMinutes ?: 0), Amber500)
             )
 

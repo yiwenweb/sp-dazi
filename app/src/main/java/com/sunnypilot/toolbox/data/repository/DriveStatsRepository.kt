@@ -60,9 +60,9 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
 
     suspend fun aggregate(start: String, end: String): AggregatedStats = withContext(Dispatchers.IO) {
         val list = dao.getBetween(start, end)
-        val total = list.sumOf { it.totalDistanceKm.toDouble() }.toFloat()
-        val assisted = list.sumOf { it.assistedDistanceKm.toDouble() }.toFloat()
-        val manual = list.sumOf { it.manualDistanceKm.toDouble() }.toFloat()
+        val total = kotlin.math.round(list.sumOf { it.totalDistanceKm.toDouble() } * 10.0).toFloat() / 10f
+        val assisted = kotlin.math.round(list.sumOf { it.assistedDistanceKm.toDouble() } * 10.0).toFloat() / 10f
+        val manual = kotlin.math.round(list.sumOf { it.manualDistanceKm.toDouble() } * 10.0).toFloat() / 10f
         val duration = list.sumOf { it.durationMinutes }
         val assistedDuration = list.sumOf { it.assistedDurationMinutes }
         val takeovers = list.sumOf { it.takeovers }
@@ -77,11 +77,19 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         val manualPercent = if (total > 0) (manual / total * 100).toInt() else 0
         val durationRatioPercent = if (duration > 0) (assistedDuration.toFloat() / duration * 100).toInt() else 0
         val score = calculateScore(list)
-        val avgSpeed = if (duration > 0) total / (duration / 60f) else 0f
-        val maxSpeed = if (list.isNotEmpty()) list.maxOf { it.maxSpeedKmh } else 0f
-        val longestSingle = if (list.isNotEmpty()) list.maxOf { it.longestDistanceKm } else 0f
+        val avgSpeed = if (duration > 0) {
+            kotlin.math.round(total / (duration / 60f) * 10f) / 10f
+        } else 0f
+        val maxSpeed = if (list.isNotEmpty()) {
+            kotlin.math.round(list.maxOf { it.maxSpeedKmh } * 10f) / 10f
+        } else 0f
+        val longestSingle = if (list.isNotEmpty()) {
+            kotlin.math.round(list.maxOf { it.longestDistanceKm } * 10f) / 10f
+        } else 0f
         val longestSegment = if (list.isNotEmpty()) list.maxOf { it.longestSegmentMinutes } else 0
-        val takeoversPerKkm = if (total > 0) takeovers / (total / 1000f) else 0f
+        val takeoversPerKkm = if (total > 0) {
+            kotlin.math.round(takeovers / (total / 1000f) * 100f) / 100f
+        } else 0f
         AggregatedStats(
             startDate = start,
             totalDistanceKm = total,
