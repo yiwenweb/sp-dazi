@@ -54,6 +54,11 @@ fun DataCenterScreen(
     var startDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).first) }
     var endDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).second) }
 
+    // 同步进度状态
+    var showSyncDialog by remember { mutableStateOf(false) }
+    var syncStage by remember { mutableStateOf("") }
+    var syncError by remember { mutableStateOf<String?>(null) }
+
     fun loadStats() {
         scope.launch {
             val data = repository.aggregate(startDate, endDate)
@@ -81,9 +86,16 @@ fun DataCenterScreen(
 
     fun syncFromDevice() {
         scope.launch {
+            syncError = null
+            syncStage = "正在连接 C3…"
+            showSyncDialog = true
             isLoading = true
-            repository.syncFromDevice().fold(
+            repository.syncFromDevice(
+                onStage = { stage -> syncStage = stage }
+            ).fold(
                 onSuccess = { count ->
+                    syncStage = ""
+                    showSyncDialog = false
                     if (count > 0) {
                         Toast.makeText(context, "同步 $count 条记录", Toast.LENGTH_SHORT).show()
                     } else {
@@ -92,7 +104,8 @@ fun DataCenterScreen(
                     loadStats()
                 },
                 onFailure = { e ->
-                    Toast.makeText(context, "同步失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    syncError = e.message ?: "未知错误"
+                    syncStage = ""
                 }
             )
             isLoading = false
@@ -172,6 +185,71 @@ fun DataCenterScreen(
                 endDate = e
                 showDateDialog = false
                 loadStats()
+            }
+        )
+    }
+
+    // 同步进度弹窗
+    if (showSyncDialog && syncError == null) {
+        AlertDialog(
+            onDismissRequest = { showSyncDialog = false },
+            title = { Text("正在获取数据", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = Teal500,
+                        strokeWidth = 4.dp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(syncStage, fontSize = 15.sp, color = Slate700)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("请勿关闭此页面", fontSize = 12.sp, color = Slate400)
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    // 同步失败详情弹窗
+    syncError?.let { err ->
+        AlertDialog(
+            onDismissRequest = { syncError = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = Red500, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("同步失败", color = Red500, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column {
+                    Text("错误详情：", fontWeight = FontWeight.SemiBold, color = Slate800)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Red100,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            err,
+                            fontSize = 13.sp,
+                            color = Red500,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("常见原因：", fontSize = 12.sp, color = Slate500)
+                    Text("  • C3 未连接或 SSH 断开", fontSize = 12.sp, color = Slate500)
+                    Text("  • C3 上的脚本 calc_drive_stats.py 缺失", fontSize = 12.sp, color = Slate500)
+                    Text("  • C3 realdata 中没有行车数据", fontSize = 12.sp, color = Slate500)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { syncError = null }) { Text("知道了", color = Teal500) }
             }
         )
     }

@@ -124,12 +124,15 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         return score.coerceIn(0, 100)
     }
 
-    suspend fun syncFromDevice(): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun syncFromDevice(
+        onStage: (String) -> Unit = {}
+    ): Result<Int> = withContext(Dispatchers.IO) {
         if (!sshManager.isConnected()) {
             return@withContext Result.failure(IllegalStateException("未连接 C3"))
         }
 
-        // Step 1: 确保脚本存在（若缺失则尝试从 /data/openpilot/ 复制）
+        // Step 1: 确保脚本存在
+        onStage("正在连接 C3…")
         val checkScript = sshManager.executeCommand(
             "test -f /data/openpilot/${C3_SCRIPT} && echo 'OK' || echo 'MISSING'"
         ).getOrElse { return@withContext Result.failure(Exception("SSH 通信失败")) }
@@ -141,26 +144,25 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
 
         // Step 2: 检查是否有 segment 数据
+        onStage("正在检查数据…")
         val hasData = sshManager.executeCommand(
             "ls ${C3_REALDATA}/*--* 2>/dev/null | head -1 || echo ''"
         ).getOrElse { "" }
 
         if (hasData.trim().isEmpty()) {
-            // 无行车数据，返回 0 但不视为失败
             return@withContext Result.success(0)
         }
 
-        // Step 3: 执行统计脚本，捕获输出
-        // C3 上 openpilot 的 Python 依赖装在 /usr/local/venv/ 下（非系统 python3），
-        // 必须用 venv 的 python 否则导入 LogReader（需 zstandard / capnp）会失败
-        // 注意：SshManager 会自动合并 stdout+stderr，因此必须从混合输出中提取 JSON
+        // Step 3: 执行统计脚本
+        onStage("正在远程计算统计（约 30~60 秒）…")
         val rawOutput = sshManager.executeCommand(
             "/usr/local/venv/bin/python /data/openpilot/${C3_SCRIPT}"
         ).getOrElse {
             return@withContext Result.failure(Exception("脚本执行失败: ${it.message}"))
         }
 
-        // Step 4: 从输出中提取 JSON 数组（免疫 stderr 后缀干扰）
+        // Step 4: 从输出中提取 JSON 数组
+        onStage("正在解析数据…")
         val jsonStr = runCatching {
             val t = rawOutput.trim()
             val start = t.indexOf('[')
@@ -169,11 +171,12 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             t.substring(start, end + 1)
         }.getOrElse {
             return@withContext Result.failure(
-                Exception("解析统计结果失败。原始输出: ${rawOutput.take(300)}")
+                Exception("C3 脚本输出异常。原始输出:\n${rawOutput.take(500)}")
             )
         }
 
-        // Step 5: 解析 JSON 数组 → DriveStats 列表
+        // Step 5: 解析 JSON → 保存到本地
+        onStage("正在保存到本地数据库…")
         runCatching {
             val array = JSONArray(jsonStr)
             if (array.length() == 0) {
@@ -186,14 +189,13 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
                 stats.add(parseJsonToDriveStats(obj))
             }
 
-            // Step 6: 全量替换（清除旧数据，写入新数据）
             dao.clear()
             dao.insertAll(stats)
 
             return@withContext Result.success(stats.size)
         }.onFailure { e ->
             return@withContext Result.failure(
-                Exception("解析统计结果失败: ${e.message}. 原始输出: ${rawOutput.take(300)}")
+                Exception("解析统计结果失败: ${e.message}\n原始输出:\n${rawOutput.take(500)}")
             )
         }
     }
