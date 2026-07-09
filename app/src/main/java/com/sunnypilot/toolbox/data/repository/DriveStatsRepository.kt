@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.db.AppDatabase
 import com.sunnypilot.toolbox.data.db.DriveStatsDao
+import com.sunnypilot.toolbox.data.sync.SyncStatus
 import com.sunnypilot.toolbox.model.AggregatedStats
 import com.sunnypilot.toolbox.model.DriveStats
 import kotlinx.coroutines.Dispatchers
@@ -125,14 +126,14 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
     }
 
     suspend fun syncFromDevice(
-        onStage: (String) -> Unit = {}
+        onStage: (String, SyncStatus) -> Unit = { _, _ -> }
     ): Result<Int> = withContext(Dispatchers.IO) {
         if (!sshManager.isConnected()) {
             return@withContext Result.failure(IllegalStateException("未连接 C3"))
         }
 
         // Step 1: 确保脚本存在
-        onStage("正在连接 C3…")
+        onStage("正在连接 C3…", SyncStatus.CONNECTING)
         val checkScript = sshManager.executeCommand(
             "test -f /data/openpilot/${C3_SCRIPT} && echo 'OK' || echo 'MISSING'"
         ).getOrElse { return@withContext Result.failure(Exception("SSH 通信失败")) }
@@ -144,7 +145,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
 
         // Step 2: 检查是否有 segment 数据
-        onStage("正在检查数据…")
+        onStage("正在检查数据…", SyncStatus.CHECKING)
         val hasData = sshManager.executeCommand(
             "ls ${C3_REALDATA}/*--* 2>/dev/null | head -1 || echo ''"
         ).getOrElse { "" }
@@ -154,7 +155,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
 
         // Step 3: 执行统计脚本
-        onStage("正在远程计算统计（约 30~60 秒）…")
+        onStage("正在远程计算统计（约 30~60 秒）…", SyncStatus.COMPUTING)
         val rawOutput = sshManager.executeCommand(
             "/usr/local/venv/bin/python /data/openpilot/${C3_SCRIPT}"
         ).getOrElse {
@@ -162,7 +163,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
 
         // Step 4: 从输出中提取 JSON 数组
-        onStage("正在解析数据…")
+        onStage("正在解析数据…", SyncStatus.PARSING)
         val jsonStr = runCatching {
             val t = rawOutput.trim()
             val start = t.indexOf('[')
@@ -176,7 +177,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
 
         // Step 5: 解析 JSON → 保存到本地
-        onStage("正在保存到本地数据库…")
+        onStage("正在保存到本地数据库…", SyncStatus.SAVING)
         runCatching {
             val array = JSONArray(jsonStr)
             if (array.length() == 0) {

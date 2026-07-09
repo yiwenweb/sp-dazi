@@ -28,4 +28,10 @@ interface DriveStatsDao {
 
     @Query("DELETE FROM drive_stats")
     suspend fun clear()
+
+    @Query("SELECT MAX(date) FROM drive_stats")
+    suspend fun getLatestDate(): String?
+
+    @Query("SELECT MIN(date) FROM drive_stats")
+    suspend fun getEarliestDate(): String?
 }

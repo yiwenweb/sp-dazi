@@ -33,8 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.repository.DriveStatsRepository
+import com.sunnypilot.toolbox.data.sync.SyncStateHolder
+import com.sunnypilot.toolbox.data.sync.SyncStatus
 import com.sunnypilot.toolbox.model.AggregatedStats
 import com.sunnypilot.toolbox.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -54,10 +57,22 @@ fun DataCenterScreen(
     var startDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).first) }
     var endDate by remember { mutableStateOf(DriveStatsRepository.dateRange(30).second) }
 
-    // 同步进度状态
-    var showSyncDialog by remember { mutableStateOf(false) }
-    var syncStage by remember { mutableStateOf("") }
-    var syncError by remember { mutableStateOf<String?>(null) }
+    // 数据概况弹窗（扳手第一步—看数据，确定后再启动获取）
+    var showSyncOverview by remember { mutableStateOf(false) }
+
+    // 观察 SyncStateHolder 的后台同步状态（进程级，离开页面也不会停）
+    val syncStatus by SyncStateHolder.status.collectAsState()
+    val syncStageText by SyncStateHolder.stageText.collectAsState()
+    val syncError by SyncStateHolder.errorMessage.collectAsState()
+    val syncedCount by SyncStateHolder.syncedCount.collectAsState()
+
+    // 同步完成后自动刷新显示
+    LaunchedEffect(syncedCount) {
+        if (syncedCount != null) {
+            delay(600)
+            loadStats()
+        }
+    }
 
     fun loadStats() {
         scope.launch {
@@ -84,34 +99,6 @@ fun DataCenterScreen(
         }
     }
 
-    fun syncFromDevice() {
-        scope.launch {
-            syncError = null
-            syncStage = "正在连接 C3…"
-            showSyncDialog = true
-            isLoading = true
-            repository.syncFromDevice(
-                onStage = { stage -> syncStage = stage }
-            ).fold(
-                onSuccess = { count ->
-                    syncStage = ""
-                    showSyncDialog = false
-                    if (count > 0) {
-                        Toast.makeText(context, "同步 $count 条记录", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "已同步，无新数据", Toast.LENGTH_SHORT).show()
-                    }
-                    loadStats()
-                },
-                onFailure = { e ->
-                    syncError = e.message ?: "未知错误"
-                    syncStage = ""
-                }
-            )
-            isLoading = false
-        }
-    }
-
     fun exportStats() {
         scope.launch {
             val uri = repository.exportToJson(context, startDate, endDate)
@@ -125,10 +112,9 @@ fun DataCenterScreen(
     }
 
     LaunchedEffect(Unit) {
-        // 首次进入自动尝试从 C3 同步（先检查是否有本地数据，无数据才自动同步）
         val all = repository.getAll()
         if (all.isEmpty() && sshManager.isConnected()) {
-            syncFromDevice()
+            SyncStateHolder.start(context, sshManager)
         }
         loadStats()
     }
@@ -153,8 +139,8 @@ fun DataCenterScreen(
                 autoRefresh = autoRefresh,
                 onAutoRefreshChange = { autoRefresh = it },
                 onRefresh = { loadStats() },
-                onSync = { syncFromDevice() },
-                isLoading = isLoading
+                onSync = { showSyncOverview = true },
+                isLoading = isLoading || SyncStateHolder.isRunning
             )
         }
 
@@ -189,10 +175,51 @@ fun DataCenterScreen(
         )
     }
 
-    // 同步进度弹窗
-    if (showSyncDialog && syncError == null) {
+    // ── 数据概况弹窗（扳手的第一步） ──
+    if (showSyncOverview) {
+        val earliest = SyncStateHolder.getEarliestStoredDate(context)
+        val latest = SyncStateHolder.getLatestStoredDate(context)
+        val lastSyncAt = SyncStateHolder.lastSyncAt.collectAsState().value
         AlertDialog(
-            onDismissRequest = { showSyncDialog = false },
+            onDismissRequest = { showSyncOverview = false },
+            title = { Text("数据概况", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("当前本地已有数据：", fontWeight = FontWeight.SemiBold, color = Slate700)
+                    if (earliest != null && latest != null) {
+                        Text("范围：$earliest ～ $latest", fontSize = 14.sp, color = Slate600)
+                    } else {
+                        Text("（暂无本地数据）", fontSize = 14.sp, color = Slate400)
+                    }
+                    lastSyncAt?.let {
+                        Text("上次同步：$it", fontSize = 13.sp, color = Slate500)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "点击下方「获取更新数据」将从 C3 拉取最新行车记录并替换本地数据。\n" +
+                                "同步在后台运行，可自由切换页面。",
+                        fontSize = 13.sp,
+                        color = Slate500,
+                        lineHeight = 18.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSyncOverview = false
+                    SyncStateHolder.start(context, sshManager)
+                }) { Text("获取更新数据", color = Teal500) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSyncOverview = false }) { Text("取消", color = Slate500) }
+            }
+        )
+    }
+
+    // ── 后台同步进度弹窗 ──
+    if (syncStatus != SyncStatus.IDLE) {
+        AlertDialog(
+            onDismissRequest = { },
             title = { Text("正在获取数据", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
@@ -205,19 +232,19 @@ fun DataCenterScreen(
                         strokeWidth = 4.dp
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(syncStage, fontSize = 15.sp, color = Slate700)
+                    Text(syncStageText, fontSize = 15.sp, color = Slate700)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("请勿关闭此页面", fontSize = 12.sp, color = Slate400)
+                    Text("后台运行中，可切到其他页面", fontSize = 12.sp, color = Slate400)
                 }
             },
             confirmButton = {}
         )
     }
 
-    // 同步失败详情弹窗
+    // ── 同步错误弹窗 ──
     syncError?.let { err ->
         AlertDialog(
-            onDismissRequest = { syncError = null },
+            onDismissRequest = { SyncStateHolder.dismissError() },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = Red500, modifier = Modifier.size(20.dp))
@@ -249,7 +276,7 @@ fun DataCenterScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { syncError = null }) { Text("知道了", color = Teal500) }
+                TextButton(onClick = { SyncStateHolder.dismissError() }) { Text("知道了", color = Teal500) }
             }
         )
     }
