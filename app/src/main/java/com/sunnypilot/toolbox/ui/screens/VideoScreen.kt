@@ -31,22 +31,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * 视频预览 - 支持两种查看方式：
+ * 摄像头实时流 — 通过 WebRTC（端口 5001）观看 C3 摄像头画面。
  *
- * 1) 屏幕预览（ScreenStream，端口 8083）
- *    - C3 Qt UI 内置 MJPEG 屏幕截图流，显示"和 C3 屏幕一样的内容"（含 HUD/按钮）
- *    - offroad/onroad 均可用；但 Wayland 下摄像头图层可能无法抓取
- *    - 有一定 CPU 开销（截屏 + JPEG 编码）
+ * 复用 openpilot 官方 stream_encoderd 硬件 H264 编码 + webrtcd，
+ * 几乎不占 CPU/GPU（骁龙 845 Venus 硬编），高帧率高画质。
+ * 仅 onroad（车辆启动）时可用。
  *
- * 2) 摄像头流（WebRTC，端口 5001）
- *    - 复用 openpilot 官方 stream_encoderd 硬件 H264 编码 + webrtcd
- *    - 几乎不占 CPU/GPU（骁龙 845 Venus 硬编），高帧率高画质
- *    - 仅摄像头画面，无 UI 叠加；仅 onroad（车辆启动）时可用
- *    - 需先开启 WebrtcStreamEnabled 参数（本页可一键开启，重启后保持）
+ * 三个摄像头：
+ *   road     — 正前方主摄像头（ACC/车道保持的视线）
+ *   wideRoad — 广角，两侧变道/盲区视角
+ *   driver   — 车内驾驶员视角（疲劳/分心监测）
  */
-enum class VideoMode(val title: String, val desc: String) {
-    SCREEN("屏幕预览", "和 C3 屏幕一致（含 HUD），offroad 也可用"),
-    CAMERA("摄像头流", "硬件编码高清路况，省性能，仅行车时可用")
+enum class CameraType(val key: String, val title: String, val desc: String) {
+    ROAD("road", "主视角", "正前方，ACC/车道保持视线"),
+    WIDE("wideRoad", "广角", "两侧变道/盲区视角"),
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -58,27 +56,21 @@ fun VideoScreen(
     val videoRepo = remember { VideoStreamRepository(sshManager) }
     val c3Ip = remember { sshManager.connectedHost }
 
-    var mode by remember { mutableStateOf(VideoMode.SCREEN) }
+    var camera by remember { mutableStateOf(CameraType.ROAD) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var retryKey by remember { mutableIntStateOf(0) }
 
-    // WebRTC 模式下 C3 端开关状态：null=未知/处理中
+    // WebRTC 模式下 C3 端开关状态
     var webrtcEnabling by remember { mutableStateOf(false) }
 
-    // 切到摄像头流时自动开启 C3 端 WebrtcStreamEnabled；切回屏幕预览时关闭以省电
-    LaunchedEffect(mode) {
-        if (mode == VideoMode.CAMERA) {
-            webrtcEnabling = true
-            videoRepo.enableWebrtcStream()
-            webrtcEnabling = false
-        } else {
-            videoRepo.disableWebrtcStream()
-        }
+    // 进入页面自动开启 C3 端 WebrtcStreamEnabled；离开时关闭以省电
+    LaunchedEffect(Unit) {
+        webrtcEnabling = true
+        videoRepo.enableWebrtcStream()
+        webrtcEnabling = false
     }
 
-    // 离开视频页面时关闭摄像头流，避免持续占用硬件编码/耗电。
-    // 用不随本组件取消的 scope 发送关闭命令（rememberCoroutineScope 会在 onDispose 时被取消）。
     DisposableEffect(Unit) {
         onDispose {
             CoroutineScope(Dispatchers.IO).launch {
@@ -92,12 +84,12 @@ fun VideoScreen(
             .fillMaxSize()
             .padding(20.dp)
     ) {
-        // ===== 查看方式选择器 =====
-        ViewModeSelector(
-            selected = mode,
+        // ===== 摄像头选择器 =====
+        CameraSelector(
+            selected = camera,
             onSelect = {
-                if (it != mode) {
-                    mode = it
+                if (it != camera) {
+                    camera = it
                     error = null
                     isLoading = true
                     retryKey++
@@ -126,19 +118,11 @@ fun VideoScreen(
                 }
 
                 else -> {
-                    // 根据模式生成 WebView 内容
-                    val urlOrNull: String? = if (mode == VideoMode.SCREEN) {
-                        "http://$c3Ip:8083/"
-                    } else null
-                    val htmlOrNull: String? = if (mode == VideoMode.CAMERA) {
-                        WebrtcHtml.build(host = c3Ip, port = 5001, camera = "road")
-                    } else null
-
+                    val html = WebrtcHtml.build(host = c3Ip, port = 5001, camera = camera.key)
                     VideoCard(
                         retryKey = retryKey,
-                        mode = mode,
-                        url = urlOrNull,
-                        html = htmlOrNull,
+                        camera = camera,
+                        html = html,
                         isLoading = isLoading,
                         webrtcEnabling = webrtcEnabling,
                         c3Ip = c3Ip,
@@ -152,9 +136,9 @@ fun VideoScreen(
 }
 
 @Composable
-private fun ViewModeSelector(
-    selected: VideoMode,
-    onSelect: (VideoMode) -> Unit
+private fun CameraSelector(
+    selected: CameraType,
+    onSelect: (CameraType) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -164,8 +148,8 @@ private fun ViewModeSelector(
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        VideoMode.entries.forEach { m ->
-            val isSel = m == selected
+        CameraType.entries.forEach { c ->
+            val isSel = c == selected
             Surface(
                 shape = RoundedCornerShape(9.dp),
                 color = if (isSel) Teal500 else Color.Transparent,
@@ -175,18 +159,18 @@ private fun ViewModeSelector(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelect(m) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .clickable { onSelect(c) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        m.title,
+                        c.title,
                         color = if (isSel) Color.White else Slate700,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        m.desc,
+                        c.desc,
                         color = if (isSel) Color(0xFFCCFBF1) else Slate400,
                         fontSize = 11.sp
                     )
@@ -200,8 +184,7 @@ private fun ViewModeSelector(
 @Composable
 private fun VideoCard(
     retryKey: Int,
-    mode: VideoMode,
-    url: String?,
+    camera: CameraType,
     html: String?,
     isLoading: Boolean,
     webrtcEnabling: Boolean,
@@ -254,29 +237,26 @@ private fun VideoCard(
                                     request: WebResourceRequest?,
                                     webError: android.webkit.WebResourceError?
                                 ) {
-                                    if (request?.isForMainFrame == true && mode == VideoMode.SCREEN) {
-                                        onError("无法连接到 C3 ($c3Ip:8083)")
+                                    if (request?.isForMainFrame == true) {
+                                        onError("无法连接摄像头流 ($c3Ip:5001)")
                                     }
                                 }
                             }
                         }
                     },
                     update = { webView ->
-                        // 仅当 mode/retryKey 组合变化时才重新加载，避免重组时无限重载
-                        val loadKey = "$mode:$retryKey"
+                        // 仅当 camera/retryKey 组合变化时才重新加载，避免重组时无限重载
+                        val loadKey = "$camera:$retryKey"
                         if (webView.tag != loadKey) {
                             webView.tag = loadKey
-                            when (mode) {
-                                VideoMode.SCREEN -> url?.let { webView.loadUrl(it) }
-                                VideoMode.CAMERA -> html?.let {
-                                    webView.loadDataWithBaseURL(
-                                        "http://$c3Ip/",
-                                        it,
-                                        "text/html",
-                                        "UTF-8",
-                                        null
-                                    )
-                                }
+                            html?.let {
+                                webView.loadDataWithBaseURL(
+                                    "http://$c3Ip/",
+                                    it,
+                                    "text/html",
+                                    "UTF-8",
+                                    null
+                                )
                             }
                         }
                     },
@@ -300,8 +280,7 @@ private fun VideoCard(
                             Text(
                                 when {
                                     webrtcEnabling -> "正在开启 C3 摄像头流..."
-                                    mode == VideoMode.SCREEN -> "正在连接 C3 屏幕画面..."
-                                    else -> "正在连接摄像头流..."
+                                    else -> "正在连接 ${camera.title}..."
                                 },
                                 color = Slate400,
                                 fontSize = 13.sp
@@ -324,7 +303,7 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(32.dp)
     ) {
-        Text("视频预览", color = Slate900, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("摄像头实时流", color = Slate900, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Surface(shape = RoundedCornerShape(12.dp), color = Slate100) {
             Text(
