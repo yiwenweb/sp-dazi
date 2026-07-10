@@ -14,7 +14,8 @@ data class C3SettingMeta(
     val desc: String,
     val value: JsonElement? = null,
     val error: String? = null,
-    val choices: List<String>? = null
+    val choices: List<String>? = null,
+    val category: String? = null
 )
 
 @Serializable
@@ -37,6 +38,10 @@ fun C3SettingMeta.valueAsBoolean(): Boolean {
 
 fun C3SettingMeta.valueAsInt(): Int {
     return value?.toString()?.toIntOrNull() ?: 0
+}
+
+fun C3SettingMeta.valueAsFloat(): Float {
+    return value?.toString()?.toFloatOrNull() ?: 0f
 }
 
 fun C3SettingMeta.valueAsBooleanIndex(): Int = if (valueAsBoolean()) 1 else 0
