@@ -505,7 +505,7 @@ fun DeviceManagerScreen(
                     // 如果没有任何服务详情数据，显示提示
                     if (status.serviceDetails.isEmpty()) {
                         Text(
-                            "暂无详细服务数据，请点击"立即体检"刷新状态。",
+                            "暂无详细服务数据，请点击\"立即体检\"刷新状态。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Slate500
                         )
