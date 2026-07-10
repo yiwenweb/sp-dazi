@@ -225,20 +225,27 @@ class SshManager {
         val sess = session ?: return@withContext Result.failure(IllegalStateException("未连接"))
         try {
             val channel = sess.openChannel("exec") as ChannelExec
+            val outBuf = java.io.ByteArrayOutputStream()
+            val errBuf = java.io.ByteArrayOutputStream()
+            channel.setOutputStream(outBuf)
+            channel.setErrStream(errBuf)
             channel.setCommand(command)
-            val output = ByteArrayOutputStream()
-            val error = ByteArrayOutputStream()
-            channel.outputStream = output
-            channel.setErrStream(error)
             channel.connect(10000)
 
             while (!channel.isClosed) {
                 Thread.sleep(100)
             }
 
-            val result = output.toString("UTF-8") + error.toString("UTF-8")
+            val exitStatus = channel.exitStatus
+            val result = outBuf.toString("UTF-8")
             channel.disconnect()
-            Result.success(result)
+            if (exitStatus != 0) {
+                val errMsg = errBuf.toString("UTF-8")
+                Log.w("SshManager", "Command exit=$exitStatus stderr=$errMsg")
+                Result.failure(Exception("命令执行失败 (exit=$exitStatus): $errMsg"))
+            } else {
+                Result.success(result)
+            }
         } catch (e: Exception) {
             Log.e("SshManager", "executeCommand failed", e)
             Result.failure(e)
