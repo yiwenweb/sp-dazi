@@ -146,31 +146,30 @@ function roadToImage(rx, ry, rz){
   return [u, vv];
 }
 
-// 根据video实际显示区域调整Canvas坐标
-function resizeCanvas(){
-  var rect = v.getBoundingClientRect();
-  var zrect = vidzone.getBoundingClientRect();
-  cvs.width = zrect.width;
-  cvs.height = zrect.height;
-  cvs.style.left = rect.left - zrect.left + 'px';
-  cvs.style.top = rect.top - zrect.top + 'px';
-  cvs.style.width = rect.width + 'px';
-  cvs.style.height = rect.height + 'px';
-}
-
-// 获取video内的实际图像坐标偏移
+// 根据video实际显示区域调整Canvas坐标(仅在尺寸变化时)
+var lastVidW=0, lastVidH=0, vidOff={ox:0,oy:0,w:1,h:1};
 function getVideoOffset(){
-  var rect = v.getBoundingClientRect();
-  var zrect = vidzone.getBoundingClientRect();
-  return {ox: rect.left - zrect.left, oy: rect.top - zrect.top, w: rect.width, h: rect.height};
+  var r = v.getBoundingClientRect(), z = vidzone.getBoundingClientRect();
+  return {ox: r.left-z.left, oy: r.top-z.top, w: r.width, h: r.height};
+}
+function resizeCanvas(){
+  var off = getVideoOffset();
+  if(off.w===lastVidW && off.h===lastVidH) return;
+  lastVidW=off.w; lastVidH=off.h;
+  vidOff = off;
+  cvs.width = vidzone.getBoundingClientRect().width;
+  cvs.height = vidzone.getBoundingClientRect().height;
+  cvs.style.left = off.ox + 'px';
+  cvs.style.top = off.oy + 'px';
+  cvs.style.width = off.w + 'px';
+  cvs.style.height = off.h + 'px';
 }
 
 // 调整图像坐标到Canvas
 function toCanvas(u, vv){
-  var off = getVideoOffset();
-  var sx = off.w / (CAM_CX*2); // 原始图像宽1928
-  var sy = off.h / (CAM_CY*2); // 原始图像高1208
-  return [off.ox + u * sx, off.oy + vv * sy];
+  var sx = vidOff.w / (CAM_CX*2);
+  var sy = vidOff.h / (CAM_CY*2);
+  return [vidOff.ox + u * sx, vidOff.oy + vv * sy];
 }
 
 // ===== 绘制车道线和路径 =====
