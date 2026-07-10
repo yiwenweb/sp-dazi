@@ -308,7 +308,9 @@ fun MainScreen(
                     prefs.edit().putFloat("density_scale", newScale).apply()
                 },
                 onBackup = { performBackup() },
-                onRestore = { restoreFileLauncher.launch(arrayOf("application/zip", "*/*")) }
+                onRestore = { restoreFileLauncher.launch(arrayOf("application/zip", "*/*")) },
+                onCloseBackupResult = { showBackupResult = false },
+                onCloseRestoreResult = { showRestoreResult = false }
             )
         }
     }
@@ -327,7 +329,9 @@ private fun SettingsPanel(
     onDismiss: () -> Unit,
     onScaleChange: (Float) -> Unit,
     onBackup: () -> Unit,
-    onRestore: () -> Unit
+    onRestore: () -> Unit,
+    onCloseBackupResult: () -> Unit,
+    onCloseRestoreResult: () -> Unit
 ) {
     var sliderValue by remember { mutableFloatStateOf(currentScale) }
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -426,10 +430,10 @@ private fun SettingsPanel(
     // ── 备份完成对话框 ──
     if (showBackupResult) {
         AlertDialog(
-            onDismissRequest = { showBackupResult = false },
+            onDismissRequest = onCloseBackupResult,
             title = { Text("备份结果", color = Slate900) },
             text = { Text(backupResult, fontSize = 14.sp, color = Slate600) },
-            confirmButton = { TextButton(onClick = { showBackupResult = false }) { Text("确定", color = Teal500) } }
+            confirmButton = { TextButton(onClick = onCloseBackupResult) { Text("确定", color = Teal500) } }
         )
     }
 
@@ -461,10 +465,10 @@ private fun SettingsPanel(
     // ── 恢复结果对话框 ──
     if (showRestoreResult) {
         AlertDialog(
-            onDismissRequest = { showRestoreResult = false },
+            onDismissRequest = onCloseRestoreResult,
             title = { Text("恢复结果", color = Slate900) },
             text = { Text(restoreResult, fontSize = 14.sp, color = Slate600) },
-            confirmButton = { TextButton(onClick = { showRestoreResult = false }) { Text("确定", color = Teal500) } }
+            confirmButton = { TextButton(onClick = onCloseRestoreResult) { Text("确定", color = Teal500) } }
         )
     }
 }
