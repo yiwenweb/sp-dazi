@@ -133,6 +133,39 @@ fun DataCenterScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            // ── 后台同步进度提示（非阻塞，内联卡片） ──
+            if (syncStatus != SyncStatus.IDLE) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Teal50
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = Teal500,
+                            strokeWidth = 3.dp
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                syncStageText,
+                                fontSize = 14.sp,
+                                color = Slate700,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                "后台运行中，可切到其他页面",
+                                fontSize = 12.sp,
+                                color = Slate400
+                            )
+                        }
+                    }
+                }
+            }
+
             SummaryPanel(
                 stats = stats,
                 startDate = startDate,
@@ -213,31 +246,6 @@ fun DataCenterScreen(
             dismissButton = {
                 TextButton(onClick = { showSyncOverview = false }) { Text("取消", color = Slate500) }
             }
-        )
-    }
-
-    // ── 后台同步进度弹窗 ──
-    if (syncStatus != SyncStatus.IDLE) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = { Text("正在获取数据", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(48.dp),
-                        color = Teal500,
-                        strokeWidth = 4.dp
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(syncStageText, fontSize = 15.sp, color = Slate700)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("后台运行中，可切到其他页面", fontSize = 12.sp, color = Slate400)
-                }
-            },
-            confirmButton = {}
         )
     }
 
