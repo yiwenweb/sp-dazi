@@ -453,7 +453,7 @@ button {
       <span style="font-size:12px;color:#94a3b8;margin-left:auto;" id="fileCount"></span>
     </div>
     <div class="breadcrumb" id="breadcrumb"></div>
-    <div id="fileList" class="loading">加载中...</div>
+    <div id="fileList" class="loading">点击"文件管理"标签加载</div>
   </div>
 </div>
 
@@ -509,6 +509,8 @@ function toast(msg) {
 
 // ====== 文件管理 ======
 let currentFilePath = '/';
+let filesLoaded = false;
+
 async function loadFiles(path) {
   currentFilePath = path;
   const el = document.getElementById('fileList');
@@ -555,6 +557,7 @@ async function loadFiles(path) {
     });
     html += '</table>';
     el.innerHTML = html;
+    filesLoaded = true;
   } catch (e) {
     el.innerHTML = `<div class="loading">加载失败: ${'$'}{e.message}</div>`;
   }
@@ -692,9 +695,12 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// 初始化
-loadFiles('/');
+// 初始化：只加载快捷命令（本地数据库，很快）；文件列表延迟到切换标签时
 loadCommands();
+
+document.querySelector('.tab[data-page="files"]').addEventListener('click', function() {
+  if (!filesLoaded) loadFiles('/');
+});
 </script>
 </body>
 </html>
