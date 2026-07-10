@@ -251,7 +251,7 @@ private fun VideoCard(
                             webView.tag = loadKey
                             html?.let {
                                 webView.loadDataWithBaseURL(
-                                    "http://$c3Ip/",
+                                    "http://$c3Ip:5001/",
                                     it,
                                     "text/html",
                                     "UTF-8",
