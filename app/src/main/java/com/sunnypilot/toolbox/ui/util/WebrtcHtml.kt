@@ -445,7 +445,7 @@ async function connect(){
         sdp: pc.localDescription.sdp,
         cameras: [camera],
         bridge_services_in: [],
-        bridge_services_out: ["carState","modelV2","longitudinalPlan","liveCalibration"]
+        bridge_services_out: ["carState","modelV2","liveCalibration"]
       })
     });
     if(!resp.ok) throw new Error('HTTP '+resp.status);
