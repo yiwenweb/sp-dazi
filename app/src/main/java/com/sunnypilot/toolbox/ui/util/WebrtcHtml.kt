@@ -36,30 +36,44 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;-webkit-user
 .wrap{display:flex;align-items:stretch;width:100%;height:100%}
 
 /* 左侧 HUD 面板 */
-.hud{width:80px;min-width:80px;background:rgba(15,23,42,0.92);border-right:1px solid rgba(13,148,136,0.2);
-  display:flex;flex-direction:column;justify-content:center;gap:14px;padding:12px 6px}
+.hud{width:85px;min-width:85px;background:rgba(15,23,42,0.92);border-right:1px solid rgba(13,148,136,0.2);
+  display:flex;flex-direction:column;justify-content:center;gap:10px;padding:12px 4px}
 .hud .item{text-align:center;font-family:sans-serif}
-.hud .lbl{color:#64748b;font-size:9px;display:block;margin-bottom:2px}
-.hud .val{color:#f8fafc;font-weight:600;font-size:14px;display:block}
+.hud .lbl{color:#64748b;font-size:9px;display:block;margin-bottom:1px}
+.hud .val{color:#f8fafc;font-weight:600;font-size:13px;display:block}
 .hud .val.acc-on{color:#34d399}
 .hud .val.acc-off{color:#64748b}
-.hud .val.gear{color:#fbbf24;font-size:18px}
+.hud .val.warn{color:#fbbf24}
+
+/* 扭矩条 */
+.torque-bar{width:100%;height:3px;background:#1e293b;border-radius:2px;margin-top:3px;overflow:hidden}
+.torque-bar .fill{height:100%;border-radius:2px;transition:width 0.15s}
 
 /* 中间视频区 */
 .vidzone{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;background:#0a0a1a}
 #v{max-width:100%;max-height:100%;object-fit:contain}
 
-/* 车速居中顶部（仿C3 UI） */
+/* 车速居中顶部 */
 .speedo{position:absolute;top:16px;left:50%;transform:translateX(-50%);text-align:center;z-index:10}
 .speedo .speed{font-size:48px;font-weight:700;color:#f8fafc;font-family:sans-serif;line-height:1;
   text-shadow:0 2px 8px rgba(0,0,0,0.6);letter-spacing:-2px}
 .speedo .unit{font-size:14px;color:#94a3b8;display:block;margin-top:2px}
-.speedo .set{font-size:12px;color:#64748b;margin-top:4px}
+.speedo .set{font-size:12px;color:#64748b;margin-top:2px}
 .speedo .set span{color:#fbbf24}
 
+/* 前车距离指示(速度下方) */
+.lead-ind{position:absolute;top:130px;left:50%;transform:translateX(-50%);text-align:center;z-index:8}
+.lead-ind .dist{font-size:18px;color:#f8fafc;font-weight:600;font-family:sans-serif}
+.lead-ind .gap{font-size:11px;color:#94a3b8;display:block}
+
+/* 加速指示条(底部) */
+.accel-bar{position:absolute;bottom:8px;left:10%;right:10%;height:6px;background:rgba(30,41,59,0.8);border-radius:3px;overflow:hidden;z-index:10}
+.accel-bar .fill{height:100%;border-radius:3px;transition:all 0.2s}
+.accel-bar .mark{position:absolute;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,0.3)}
+
 /* 右侧信息面板 */
-.info{width:90px;min-width:90px;background:rgba(15,23,42,0.85);border-left:1px solid rgba(100,116,139,0.15);
-  display:flex;flex-direction:column;justify-content:center;gap:8px;padding:12px 6px}
+.info{width:85px;min-width:85px;background:rgba(15,23,42,0.85);border-left:1px solid rgba(100,116,139,0.15);
+  display:flex;flex-direction:column;justify-content:center;gap:7px;padding:12px 4px}
 .info .kv{text-align:center;font-family:monospace}
 .info .kv .k{color:#475569;font-size:9px;display:block}
 .info .kv .v{color:#94a3b8;font-size:10px;display:block;margin-top:1px}
@@ -76,7 +90,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;-webkit-user
 <!-- 左侧 HUD 面板 -->
 <div class="hud" id="hud" style="display:none">
   <div class="item"><span class="lbl">ACC</span> <span class="val" id="hudAcc">--</span></div>
-  <div class="item"><span class="lbl">档位</span> <span class="val gear" id="hudGear">--</span></div>
+  <div class="item"><span class="lbl">档位</span> <span class="val" id="hudGear" style="font-size:16px;color:#fbbf24">--</span></div>
+  <div class="item"><span class="lbl">扭矩</span> <span class="val" id="hudTrq">--</span></div>
+  <div class="torque-bar"><div class="fill" id="trqFill" style="width:0%;background:#64748b"></div></div>
+  <div class="item"><span class="lbl">前车</span> <span class="val" id="hudLead">--</span></div>
   <div class="item"><span class="lbl">设定</span> <span class="val" id="hudCruise">--</span></div>
   <div class="item"><span class="lbl">转向</span> <span class="val" id="hudSteer">--</span></div>
 </div>
@@ -86,7 +103,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;-webkit-user
   <div class="loader" id="ld"></div>
   <video id="v" autoplay playsinline muted style="display:none"></video>
 
-  <!-- 车速居中顶部（仿C3 UI风格） -->
+  <!-- 车速 -->
   <div class="speedo" id="speedo" style="display:none">
     <div style="display:flex;align-items:baseline;gap:4px">
       <span class="speed" id="hudSpeed">0</span>
@@ -94,6 +111,18 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;-webkit-user
     </div>
     <div class="unit">KM/H</div>
     <div class="set">巡航 <span id="hudCruiseTop">--</span></div>
+  </div>
+
+  <!-- 前车距离 -->
+  <div class="lead-ind" id="leadInd" style="display:none">
+    <span class="dist" id="leadDist">--</span>
+    <span class="gap" id="leadGap">--</span>
+  </div>
+
+  <!-- 加速指示条 -->
+  <div class="accel-bar" id="accelBar" style="display:none">
+    <div class="fill" id="accelFill" style="width:50%;background:#475569"></div>
+    <div class="mark" style="left:50%"></div>
   </div>
 </div>
 
@@ -114,47 +143,85 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;-webkit-user
 var host="$host", port=$port, camera="$camera", streamUrl="$streamUrl";
 var v=document.getElementById('v'), ld=document.getElementById('ld'), st=document.getElementById('st');
 var hud=document.getElementById('hud'), info=document.getElementById('info');
-var speedo=document.getElementById('speedo');
+var speedo=document.getElementById('speedo'), leadInd=document.getElementById('leadInd');
+var accelBar=document.getElementById('accelBar');
 var pc=null, dc=null, retryTimer=null;
 var fpsFrames=0, fpsLastTime=0, fpsVal=0;
 
-// Capnp enum → chinese
 var GEAR_MAP = {park:'P', reverse:'R', neutral:'N', drive:'D', sport:'S', low:'L', brake:'B', unknown:'-'};
 
-// ===== HUD 更新（新布局） =====
-function updateHud(data){
+// ===== 从 carState 更新基础 HUD =====
+var curEgo = 0;
+function updateCarState(s){
   hud.style.display=''; speedo.style.display='';
-  var s=data;
-
-  // 车速—居中大字
-  if(s.vEgo != null) document.getElementById('hudSpeed').textContent = (s.vEgo*3.6).toFixed(0);
-
-  // ACC
+  if(s.vEgo != null){ curEgo = s.vEgo; document.getElementById('hudSpeed').textContent = (s.vEgo*3.6).toFixed(0); }
   var accEl = document.getElementById('hudAcc');
   if(s.cruiseState && (s.cruiseState.enabled || s.cruiseState.standstill)){
     accEl.textContent='ON'; accEl.className='val acc-on';
-  } else {
-    accEl.textContent='OFF'; accEl.className='val acc-off';
-  }
-
-  // 档位（左侧面板 + 速度旁小标）
+  } else { accEl.textContent='OFF'; accEl.className='val acc-off'; }
   if(s.gearShifter != null){
     var g = GEAR_MAP[s.gearShifter] || s.gearShifter;
     document.getElementById('hudGear').textContent = g;
     document.getElementById('hudGearMini').textContent = g;
   }
-
-  // 设定速度（左侧面板 + 速度下面）
   if(s.cruiseState && s.cruiseState.speed > 0){
     var c = (s.cruiseState.speed*3.6).toFixed(0);
     document.getElementById('hudCruise').textContent = c;
     document.getElementById('hudCruiseTop').textContent = c;
   }
-
-  // 方向盘转角
-  if(s.steeringAngleDeg != null){
+  if(s.steeringAngleDeg != null)
     document.getElementById('hudSteer').textContent = s.steeringAngleDeg.toFixed(1)+'°';
+  // 加速指示条
+  if(s.aEgo != null){
+    accelBar.style.display='';
+    var pct = 50 + s.aEgo * 20; // -2 m/s² → 10%, 0 → 50%, +2 → 90%
+    pct = Math.max(5, Math.min(95, pct));
+    var fill = document.getElementById('accelFill');
+    fill.style.width = pct+'%';
+    if(s.aEgo > 0.3) fill.style.background = '#34d399';       // 加速→绿
+    else if(s.aEgo < -0.5) fill.style.background = '#ef4444';  // 减速→红
+    else fill.style.background = '#f59e0b';                     // 滑行→黄
   }
+  // 转向扭矩
+  if(s.steeringTorqueEps != null || s.steeringTorque != null){
+    var trq = s.steeringTorqueEps || s.steeringTorque || 0;
+    document.getElementById('hudTrq').textContent = trq.toFixed(0);
+    var trqPct = 50 + trq * 0.03; // map roughly
+    trqPct = Math.max(0, Math.min(100, trqPct));
+    document.getElementById('trqFill').style.width = trqPct+'%';
+    document.getElementById('trqFill').style.background = Math.abs(trq)>800 ? '#fbbf24' : '#64748b';
+  }
+}
+
+// ===== 从 modelV2 更新前车信息 =====
+function updateModelV2(m){
+  var lead = (m.leadsV3 && m.leadsV3.length>0 && m.leadsV3[0].prob>0.5) ? m.leadsV3[0] : null;
+  if(lead && lead.x && lead.x.length>0){
+    leadInd.style.display='';
+    var d = lead.x[0];
+    document.getElementById('leadDist').textContent = d.toFixed(0)+' m';
+    document.getElementById('leadGap').textContent = curEgo>0 ? (d/curEgo).toFixed(1)+' s' : '';
+    if(d>0) document.getElementById('hudLead').textContent = d.toFixed(0)+'m';
+  } else {
+    leadInd.style.display='none';
+  }
+}
+
+// ===== 从 longitudinalPlan 更新 =====
+var lastATarget = 0;
+function updateLongPlan(p){
+  if(p.aTarget != null) lastATarget = p.aTarget;
+}
+
+// ===== 消息分发 =====
+function onMessage(evt){
+  try{
+    var msg = JSON.parse(evt.data);
+    if(!msg.data) return;
+    if(msg.type==='carState') updateCarState(msg.data);
+    else if(msg.type==='modelV2') updateModelV2(msg.data);
+    else if(msg.type==='longitudinalPlan') updateLongPlan(msg.data);
+  }catch(e){}
 }
 
 // ===== 视频统计更新 =====
@@ -201,7 +268,8 @@ function updateStats(){
 
 function setStatus(t){ if(st) st.textContent=t; }
 function showError(msg){
-  ld.style.display='none'; v.style.display='none'; hud.style.display='none'; info.style.display='none'; speedo.style.display='none';
+  ld.style.display='none'; v.style.display='none'; hud.style.display='none'; info.style.display='none';
+  speedo.style.display='none'; leadInd.style.display='none'; accelBar.style.display='none';
   var e=document.getElementById('err');
   if(!e){ e=document.createElement('div'); e.id='err'; e.className='err'; document.getElementById('wrap').appendChild(e); }
   e.textContent=msg; setStatus('');
@@ -251,18 +319,9 @@ async function connect(){
 
     // ===== DataChannel：接收 HUD 数据 =====
     dc = pc.createDataChannel('data', {ordered:true});
-    dc.onopen = function(){
-      setStatus('HUD 已连接');
-    };
+    dc.onopen = function(){ setStatus('HUD 已连接'); };
     dc.onclose = function(){ dc=null; };
-    dc.onmessage = function(evt){
-      try{
-        var msg = JSON.parse(evt.data);
-        if (msg.type === 'carState' && msg.data){
-          updateHud(msg.data);
-        }
-      }catch(e){}
-    };
+    dc.onmessage = onMessage;
 
     var offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -275,7 +334,7 @@ async function connect(){
         sdp: pc.localDescription.sdp,
         cameras: [camera],
         bridge_services_in: [],
-        bridge_services_out: ["carState"]
+        bridge_services_out: ["carState","modelV2","longitudinalPlan"]
       })
     });
     if(!resp.ok) throw new Error('HTTP '+resp.status);
