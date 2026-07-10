@@ -259,16 +259,6 @@ private fun QuickCommandCard(
                     }
                 }
             }
-            Text(
-                text = command.command,
-                color = Slate600,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Slate100)
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            )
         }
     }
 }
