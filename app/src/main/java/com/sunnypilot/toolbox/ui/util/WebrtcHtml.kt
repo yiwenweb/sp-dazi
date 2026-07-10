@@ -32,52 +32,72 @@ object WebrtcHtml {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#1a1a2e;-webkit-user-select:none;user-select:none}
-.wrap{display:flex;align-items:center;justify-content:center;width:100%;height:100%;position:relative}
-#v{max-width:100%;max-height:100%;object-fit:contain;background:#0a0a1a}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;-webkit-user-select:none;user-select:none}
+.wrap{display:flex;align-items:stretch;width:100%;height:100%}
 
-/* ===== HUD 叠加面板（顶部） ===== */
-.hud{position:absolute;top:8px;left:8px;right:8px;
-  background:rgba(15,23,42,0.88);border:1px solid rgba(13,148,136,0.35);
-  border-radius:8px;padding:8px 12px;color:#e2e8f0;font-family:sans-serif;
-  font-size:12px;line-height:1.4;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px}
-.hud .item{white-space:nowrap}
-.hud .lbl{color:#94a3b8;font-size:10px}
-.hud .val{color:#f8fafc;font-weight:600}
+/* 左侧 HUD 面板 */
+.hud{width:80px;min-width:80px;background:rgba(15,23,42,0.92);border-right:1px solid rgba(13,148,136,0.2);
+  display:flex;flex-direction:column;justify-content:center;gap:14px;padding:12px 6px}
+.hud .item{text-align:center;font-family:sans-serif}
+.hud .lbl{color:#64748b;font-size:9px;display:block;margin-bottom:2px}
+.hud .val{color:#f8fafc;font-weight:600;font-size:14px;display:block}
 .hud .val.acc-on{color:#34d399}
 .hud .val.acc-off{color:#64748b}
-.hud .val.gear{color:#fbbf24}
+.hud .val.gear{color:#fbbf24;font-size:18px}
 
-/* ===== 视频信息面板（底部） ===== */
-.info{position:absolute;bottom:8px;left:8px;right:8px;
-  background:rgba(15,23,42,0.75);border:1px solid rgba(100,116,139,0.25);
-  border-radius:6px;padding:5px 10px;color:#94a3b8;font-family:monospace;
-  font-size:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:2px 16px}
-.info .kv{white-space:nowrap}
-.info .kv .k{color:#64748b}
-.info .kv .v{color:#94a3b8}
+/* 中间视频区 */
+.vidzone{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;background:#0a0a1a}
+#v{max-width:100%;max-height:100%;object-fit:contain}
 
-.status{position:absolute;bottom:26px;left:0;right:0;text-align:center;color:#64748b;font-size:11px;font-family:sans-serif}
-.err{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);text-align:center;color:#f87171;font-size:14px;font-family:sans-serif;padding:0 24px;line-height:1.6}
-.loader{position:absolute;width:28px;height:28px;border:2.5px solid #1e293b;border-top-color:#0d9488;border-radius:50%;animation:spin .7s linear infinite}
+/* 车速居中顶部（仿C3 UI） */
+.speedo{position:absolute;top:16px;left:50%;transform:translateX(-50%);text-align:center;z-index:10}
+.speedo .speed{font-size:48px;font-weight:700;color:#f8fafc;font-family:sans-serif;line-height:1;
+  text-shadow:0 2px 8px rgba(0,0,0,0.6);letter-spacing:-2px}
+.speedo .unit{font-size:14px;color:#94a3b8;display:block;margin-top:2px}
+.speedo .set{font-size:12px;color:#64748b;margin-top:4px}
+.speedo .set span{color:#fbbf24}
+
+/* 右侧信息面板 */
+.info{width:90px;min-width:90px;background:rgba(15,23,42,0.85);border-left:1px solid rgba(100,116,139,0.15);
+  display:flex;flex-direction:column;justify-content:center;gap:8px;padding:12px 6px}
+.info .kv{text-align:center;font-family:monospace}
+.info .kv .k{color:#475569;font-size:9px;display:block}
+.info .kv .v{color:#94a3b8;font-size:10px;display:block;margin-top:1px}
+
+.status{position:fixed;bottom:4px;left:0;right:0;text-align:center;color:#475569;font-size:10px;font-family:sans-serif;z-index:5}
+.err{position:fixed;top:50%;left:0;right:0;transform:translateY(-50%);text-align:center;color:#f87171;font-size:14px;font-family:sans-serif;padding:0 24px;line-height:1.6;z-index:20}
+.loader{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:28px;height:28px;border:2.5px solid #1e293b;border-top-color:#0d9488;border-radius:50%;animation:spin .7s linear infinite;z-index:20}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <div class="wrap" id="wrap">
-<div class="loader" id="ld"></div>
-<video id="v" autoplay playsinline muted style="display:none"></video>
 
-<!-- HUD 叠加面板 -->
+<!-- 左侧 HUD 面板 -->
 <div class="hud" id="hud" style="display:none">
-  <div class="item"><span class="lbl">车速</span> <span class="val" id="hudSpeed">--</span> km/h</div>
   <div class="item"><span class="lbl">ACC</span> <span class="val" id="hudAcc">--</span></div>
   <div class="item"><span class="lbl">档位</span> <span class="val gear" id="hudGear">--</span></div>
-  <div class="item"><span class="lbl">设定</span> <span class="val" id="hudCruise">--</span> km/h</div>
-  <div class="item"><span class="lbl">转向</span> <span class="val" id="hudSteer">--</span>&deg;</div>
+  <div class="item"><span class="lbl">设定</span> <span class="val" id="hudCruise">--</span></div>
+  <div class="item"><span class="lbl">转向</span> <span class="val" id="hudSteer">--</span></div>
 </div>
 
-<!-- 视频信息面板（底部） -->
+<!-- 中间视频区 -->
+<div class="vidzone">
+  <div class="loader" id="ld"></div>
+  <video id="v" autoplay playsinline muted style="display:none"></video>
+
+  <!-- 车速居中顶部（仿C3 UI风格） -->
+  <div class="speedo" id="speedo" style="display:none">
+    <div style="display:flex;align-items:baseline;gap:4px">
+      <span class="speed" id="hudSpeed">0</span>
+      <span style="color:#fbbf24;font-weight:600;font-size:20px;font-family:sans-serif" id="hudGearMini"></span>
+    </div>
+    <div class="unit">KM/H</div>
+    <div class="set">巡航 <span id="hudCruiseTop">--</span></div>
+  </div>
+</div>
+
+<!-- 右侧信息面板 -->
 <div class="info" id="info" style="display:none">
   <div class="kv"><span class="k">分辨率</span> <span class="v" id="iRes">--</span></div>
   <div class="kv"><span class="k">帧率</span> <span class="v" id="iFps">--</span></div>
@@ -87,42 +107,53 @@ html,body{width:100%;height:100%;overflow:hidden;background:#1a1a2e;-webkit-user
   <div class="kv"><span class="k">编码</span> <span class="v" id="iCodec">--</span></div>
 </div>
 
-<div class="status" id="st">正在协商 WebRTC 连接...</div>
 </div>
+
+<div class="status" id="st">正在协商 WebRTC 连接...</div>
 <script>
 var host="$host", port=$port, camera="$camera", streamUrl="$streamUrl";
 var v=document.getElementById('v'), ld=document.getElementById('ld'), st=document.getElementById('st');
 var hud=document.getElementById('hud'), info=document.getElementById('info');
+var speedo=document.getElementById('speedo');
 var pc=null, dc=null, retryTimer=null;
 var fpsFrames=0, fpsLastTime=0, fpsVal=0;
 
-// Capnp enum → 显示文字映射
+// Capnp enum → chinese
 var GEAR_MAP = {park:'P', reverse:'R', neutral:'N', drive:'D', sport:'S', low:'L', brake:'B', unknown:'-'};
 
-// ===== HUD 显示更新 =====
+// ===== HUD 更新（新布局） =====
 function updateHud(data){
-  hud.style.display='';
+  hud.style.display=''; speedo.style.display='';
   var s=data;
-  // 车速
+
+  // 车速—居中大字
   if(s.vEgo != null) document.getElementById('hudSpeed').textContent = (s.vEgo*3.6).toFixed(0);
-  // ACC (cruiseState.enabled 是 capnp 字段)
+
+  // ACC
   var accEl = document.getElementById('hudAcc');
   if(s.cruiseState && (s.cruiseState.enabled || s.cruiseState.standstill)){
-    accEl.textContent='开'; accEl.className='val acc-on';
+    accEl.textContent='ON'; accEl.className='val acc-on';
   } else {
-    accEl.textContent='关'; accEl.className='val acc-off';
+    accEl.textContent='OFF'; accEl.className='val acc-off';
   }
-  // 档位 (capnp: gearShifter 是枚举，to_dict后为字符串)
+
+  // 档位（左侧面板 + 速度旁小标）
   if(s.gearShifter != null){
-    document.getElementById('hudGear').textContent = GEAR_MAP[s.gearShifter] || s.gearShifter;
+    var g = GEAR_MAP[s.gearShifter] || s.gearShifter;
+    document.getElementById('hudGear').textContent = g;
+    document.getElementById('hudGearMini').textContent = g;
   }
-  // 设定速度
+
+  // 设定速度（左侧面板 + 速度下面）
   if(s.cruiseState && s.cruiseState.speed > 0){
-    document.getElementById('hudCruise').textContent = (s.cruiseState.speed*3.6).toFixed(0);
+    var c = (s.cruiseState.speed*3.6).toFixed(0);
+    document.getElementById('hudCruise').textContent = c;
+    document.getElementById('hudCruiseTop').textContent = c;
   }
+
   // 方向盘转角
   if(s.steeringAngleDeg != null){
-    document.getElementById('hudSteer').textContent = s.steeringAngleDeg.toFixed(1);
+    document.getElementById('hudSteer').textContent = s.steeringAngleDeg.toFixed(1)+'°';
   }
 }
 
@@ -170,7 +201,7 @@ function updateStats(){
 
 function setStatus(t){ if(st) st.textContent=t; }
 function showError(msg){
-  ld.style.display='none'; v.style.display='none'; hud.style.display='none'; info.style.display='none';
+  ld.style.display='none'; v.style.display='none'; hud.style.display='none'; info.style.display='none'; speedo.style.display='none';
   var e=document.getElementById('err');
   if(!e){ e=document.createElement('div'); e.id='err'; e.className='err'; document.getElementById('wrap').appendChild(e); }
   e.textContent=msg; setStatus('');
