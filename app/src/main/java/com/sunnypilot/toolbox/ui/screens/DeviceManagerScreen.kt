@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.model.DeviceStatus
+import com.sunnypilot.toolbox.model.ServiceStatus
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -42,6 +43,7 @@ fun DeviceManagerScreen(
     var exportResult by remember { mutableStateOf("") }
     var selectedSuggestion by remember { mutableStateOf<Suggestion?>(null) }
     var showSuggestionDialog by remember { mutableStateOf(false) }
+    var showServiceDetailDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val suggestions = remember(status, healthScore) { generateSuggestions(status, healthScore) }
 
@@ -200,6 +202,9 @@ fun DeviceManagerScreen(
                         value = if (status.openpilotService) "正常" else "异常",
                         isGood = status.openpilotService,
                         icon = if (status.openpilotService) Icons.Default.CheckCircle else Icons.Default.Error,
+                        subtitle = if (status.abnormalServices.isNotEmpty())
+                            "${status.abnormalServices.size}项异常" else null,
+                        onClick = { showServiceDetailDialog = true },
                         modifier = Modifier.weight(1f)
                     )
                     StatusCard(
@@ -207,6 +212,8 @@ fun DeviceManagerScreen(
                         value = if (status.pandaComm) "正常" else "异常",
                         isGood = status.pandaComm,
                         icon = if (status.pandaComm) Icons.Default.CheckCircle else Icons.Default.Error,
+                        subtitle = if (status.pandaComm) "已连接" else "未检测到",
+                        onClick = { showServiceDetailDialog = true },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -397,6 +404,9 @@ fun DeviceManagerScreen(
                                     showExportDialog = true
                                 }
                             }
+                            SuggestionAction.VIEW_SERVICES -> {
+                                showServiceDetailDialog = true
+                            }
                         }
                     },
                     shape = RoundedCornerShape(12.dp),
@@ -407,6 +417,115 @@ fun DeviceManagerScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showSuggestionDialog = false }) {
+                    Text("关闭")
+                }
+            }
+        )
+    }
+
+    // 服务详情弹窗 - 显示各关键服务的运行状态
+    if (showServiceDetailDialog) {
+        AlertDialog(
+            onDismissRequest = { showServiceDetailDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (status.openpilotService) Icons.Default.CheckCircle else Icons.Default.Error,
+                        null,
+                        tint = if (status.openpilotService) Green500 else Red500,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        "openpilot 服务状态",
+                        color = Slate900,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 450.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // 总览
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Slate100)
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "共检测 ${status.serviceDetails.size} 项服务",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate700
+                        )
+                        val abnormalCount = status.abnormalServices.size
+                        if (abnormalCount > 0) {
+                            Text(
+                                "${abnormalCount} 项异常",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Red500,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Text(
+                                "全部正常",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Green500,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // 按分类显示服务状态
+                    val categories = listOf("核心服务", "感知模型", "定位服务", "硬件通信", "日志与通信", "车机界面", "其他")
+                    categories.forEach { category ->
+                        val servicesInCategory = status.serviceDetails.filter { it.category == category }
+                        if (servicesInCategory.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = category,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Slate500,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                                servicesInCategory.forEach { svc ->
+                                    ServiceStatusRow(serviceStatus = svc)
+                                }
+                            }
+                        }
+                    }
+
+                    // 如果没有任何服务详情数据，显示提示
+                    if (status.serviceDetails.isEmpty()) {
+                        Text(
+                            "暂无详细服务数据，请点击"立即体检"刷新状态。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate500
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showServiceDetailDialog = false
+                        performCheck()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                ) {
+                    Text("重新检测")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showServiceDetailDialog = false }) {
                     Text("关闭")
                 }
             }
@@ -529,13 +648,16 @@ private fun StatusCard(
     value: String,
     isGood: Boolean,
     icon: ImageVector,
+    subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = if (isGood) Green100 else Red100,
         modifier = modifier
-            .height(120.dp)
+            .height(130.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -553,12 +675,21 @@ private fun StatusCard(
                         .background(if (isGood) Green500 else Red500)
                 )
             }
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineMedium,
-                color = Slate900,
-                fontWeight = FontWeight.SemiBold
-            )
+            Column {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Slate900,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isGood) Green700 else Red600
+                    )
+                }
+            }
         }
     }
 }
@@ -667,7 +798,7 @@ private fun SuggestionItem(suggestion: Suggestion, onClick: () -> Unit) {
     }
 }
 
-private enum class SuggestionAction { CHECK, CLEANUP, VIEW_LOGS }
+private enum class SuggestionAction { CHECK, CLEANUP, VIEW_LOGS, VIEW_SERVICES }
 
 private data class Suggestion(
     val title: String,
@@ -682,11 +813,55 @@ private data class Suggestion(
 
 private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Suggestion> {
     val list = mutableListOf<Suggestion>()
+
+    // ===== 优先：服务状态异常检测 =====
+    val abnormalCount = status.abnormalServices.size
+    val hasPandaIssue = !status.pandaComm
+
+    if (abnormalCount > 0 || hasPandaIssue) {
+        val abnormalNames = status.abnormalServiceNames
+        val issues = buildString {
+            if (!status.openpilotService) append("· openpilot manager 进程未运行，系统可能处于离线状态\n")
+            if (abnormalCount > 0) {
+                append("· 以下关键服务未运行：${abnormalNames}\n")
+            }
+            if (hasPandaIssue) {
+                append("· Panda 通信异常：未检测到 Panda 设备连接\n")
+            }
+        }
+        list.add(
+            Suggestion(
+                title = if (abnormalCount > 0) "设备监控异常（${abnormalCount}项服务停止）" else "设备通信异常",
+                description = if (abnormalCount > 0 && hasPandaIssue)
+                    "openpilot 关键服务异常且 Panda 通信中断，自动驾驶功能可能受限。"
+                else if (abnormalCount > 0)
+                    "${abnormalNames} 等关键服务未运行，自动驾驶功能可能受限。"
+                else
+                    "Panda 通信异常，无法与车辆 CAN 总线通信。",
+                icon = Icons.Default.Warning,
+                iconColor = Red500,
+                bgColor = Red100,
+                detailText = buildString {
+                    append("检测到以下异常：\n\n")
+                    append(issues)
+                    append("\n可能原因：\n")
+                    append("1) openpilot 启动失败或进程异常退出\n")
+                    append("2) 近期升级/修改参数导致 manager 未正确重启\n")
+                    append("3) Panda 设备 USB 连接松动或供电异常\n")
+                    append("4) 关键依赖（如 camera、model）初始化失败\n")
+                    append("\n建议：点击下方按钮查看详细服务状态，定位具体异常服务后尝试重启 openpilot。")
+                },
+                actionType = SuggestionAction.VIEW_SERVICES,
+                actionLabel = "查看服务详情"
+            )
+        )
+    }
+
     when {
         healthScore < 60 -> list.add(
             Suggestion(
                 "设备健康度较低",
-                "检测到多项指标异常，建议立即体检并处理异常项。",
+                "检测到多项指标异常，建议立即体检并处理异常项。健康分 ${healthScore}/100",
                 Icons.Default.Warning,
                 Red500, Red100,
                 detailText = "健康分仅 ${healthScore}/100。请点击下方按钮进行全面体检，查看 CPU 温度、内存占用、存储空间及服务运行状态等详细指标。",
@@ -711,7 +886,7 @@ private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Su
                 "openpilot 服务与 Panda 通信均正常。",
                 Icons.Default.CheckCircle,
                 Green500, Green100,
-                detailText = "健康分 ${healthScore}/100，各项指标正常。openpilot 进程正在运行，设备状态良好。建议定期进行体检以保持最佳性能。",
+                detailText = "健康分 ${healthScore}/100，各项指标正常。openpilot 关键服务全部运行中，设备状态良好。建议定期进行体检以保持最佳性能。",
                 actionType = SuggestionAction.CHECK,
                 actionLabel = "重新体检"
             )
@@ -839,6 +1014,42 @@ private fun CleanupItemDesc(title: String, desc: String) {
     }
 }
 
+@Composable
+private fun ServiceStatusRow(serviceStatus: ServiceStatus) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (serviceStatus.running) Green50 else Red50)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // 状态指示灯
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(if (serviceStatus.running) Green500 else Red500)
+        )
+        // 服务名称
+        Text(
+            text = serviceStatus.displayName,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Slate900,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        // 运行状态文字
+        Text(
+            text = if (serviceStatus.running) "运行中" else "已停止",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (serviceStatus.running) Green600 else Red600,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
 private suspend fun runCleanupDetailed(sshManager: SshManager, onResult: (String) -> Unit) {
     val script = """
 echo "===== 清理前状态 ====="
@@ -890,6 +1101,11 @@ private suspend fun refreshStatus(sshManager: SshManager, onResult: (DeviceStatu
         val total = memoryParts.getOrNull(1)?.toIntOrNull() ?: 1
         val memoryUsage = if (total > 0) (used * 100 / total) else 0
 
+        // 解析详细服务状态
+        val serviceDetails = parseServiceDetails(data["serviceDetails"] ?: "")
+        // manager 进程是否运行（通过 serviceDetails 中的 manager 判断，兼容旧数据）
+        val managerRunning = serviceDetails.any { it.name == "manager" && it.running }
+
         onResult(
             DeviceStatus(
                 name = data["hostname"] ?: "Comma C3",
@@ -904,11 +1120,59 @@ private suspend fun refreshStatus(sshManager: SshManager, onResult: (DeviceStatu
                 serial = data["serial"] ?: "unknown",
                 stableId = data["dongleId"] ?: "unknown",
                 isConnected = true,
-                openpilotService = (data["openpilotProcesses"]?.toIntOrNull() ?: 0) > 0,
-                pandaComm = true
+                openpilotService = managerRunning || (data["openpilotProcesses"]?.toIntOrNull() ?: 0) > 0,
+                pandaComm = (data["pandaComm"]?.toIntOrNull() ?: 0) > 0,
+                serviceDetails = serviceDetails
             )
         )
     }.onFailure {
         onResult(DeviceStatus(isConnected = false))
     }
+}
+
+/**
+ * 解析 SSH 返回的服务检测原始文本，构建 ServiceStatus 列表。
+ * 输入格式（每行）: "manager|进程管家:1" 或 "modeld|AI模型(modeld):0"
+ */
+private fun parseServiceDetails(raw: String): List<ServiceStatus> {
+    if (raw.isBlank() || raw == "{}") return emptyList()
+
+    // 定义各服务的归属分类
+    val coreServices = setOf("manager", "selfdrived", "controlsd", "plannerd")
+    val perceptionServices = setOf("camerad", "modeld", "modeld_snpe", "modeld_tinygrad", "dmonitoringd")
+    val localizationServices = setOf("locationd", "calibrationd", "paramsd")
+    val hardwareServices = setOf("pandad", "hardwared", "sensord")
+    val logServices = setOf("loggerd", "uploader", "athenad", "deleter")
+    val uiServices = setOf("ui")
+
+    fun categorize(name: String): String = when (name) {
+        in coreServices -> "核心服务"
+        in perceptionServices -> "感知模型"
+        in localizationServices -> "定位服务"
+        in hardwareServices -> "硬件通信"
+        in logServices -> "日志与通信"
+        in uiServices -> "车机界面"
+        else -> "其他"
+    }
+
+    return raw.lines()
+        .filter { it.contains("|") && it.contains(":") }
+        .mapNotNull { line ->
+            // 格式: "manager|进程管家:1"
+            val pipeIdx = line.lastIndexOf('|')
+            val colonIdx = line.lastIndexOf(':')
+            if (pipeIdx < 0 || colonIdx < 0 || colonIdx <= pipeIdx) return@mapNotNull null
+
+            val procName = line.substring(0, pipeIdx).trim()
+            val displayName = line.substring(pipeIdx + 1, colonIdx).trim()
+            val count = line.substring(colonIdx + 1).trim().toIntOrNull() ?: 0
+
+            ServiceStatus(
+                name = procName,
+                displayName = displayName.ifEmpty { procName },
+                running = count > 0,
+                shouldBeRunning = true,
+                category = categorize(procName)
+            )
+        }
 }

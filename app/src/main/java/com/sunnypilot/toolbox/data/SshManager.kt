@@ -354,8 +354,13 @@ class SshManager {
             "cat /proc/sys/kernel/hostname",
             "cat /data/params/d/HardwareSerial 2>/dev/null || echo unknown",
             "cat /data/params/d/DongleId 2>/dev/null || echo unknown",
-            "ps -A | grep '/data/openpilot/system/manager' | grep -v grep | wc -l",
-            "df -h /data/media/0 2>/dev/null | tail -1 | awk '{print $4}' || echo ''"
+            // 使用 pgrep 检测 manager 进程更可靠
+            "pgrep -f 'manager/manager.py' | wc -l",
+            "df -h /data/media/0 2>/dev/null | tail -1 | awk '{print $4}' || echo ''",
+            // 检测 panda 连接状态：检查 pandad 进程 + USB 设备
+            "if pgrep -f 'pandad' > /dev/null 2>&1; then if [ -c /dev/panda ] || [ -e /dev/serial/by-id/*panda* ] 2>/dev/null || lsusb 2>/dev/null | grep -qi 'bbaa\\|panda'; then echo 1; else echo 0; fi; else echo 0; fi",
+            // 详细服务状态（JSON格式），检测关键 openpilot 进程
+            buildServiceCheckScript()
         )
         val script = commands.joinToString("; echo '---'; ")
         executeCommand(script).map { output ->
@@ -372,8 +377,68 @@ class SshManager {
                 "serial" to (parts.getOrNull(8) ?: "unknown"),
                 "dongleId" to (parts.getOrNull(9) ?: "unknown"),
                 "openpilotProcesses" to (parts.getOrNull(10) ?: "0"),
-                "storageFreeSsd" to (parts.getOrNull(11) ?: "--")
+                "storageFreeSsd" to (parts.getOrNull(11) ?: "--"),
+                "pandaComm" to (parts.getOrNull(12) ?: "0"),
+                "serviceDetails" to (parts.getOrNull(13) ?: "{}")
             )
+        }
+    }
+
+    /**
+     * 构建检测关键 openpilot 服务进程的 Shell 脚本。
+     * 输出格式（每行）: "进程名|显示名:运行数量"
+     * 覆盖：核心服务、感知模型、定位、硬件、日志通信、UI
+     *
+     * pgrep -f 自动排除自身，无需 grep -v grep。
+     * 部分进程名存在包含关系（modeld 会被 modeld_snpe/dmonitoringmodeld 匹配），
+     * 通过 grep -v 排除冲突名称。
+     */
+    private fun buildServiceCheckScript(): String {
+        data class ProcDef(
+            val name: String,
+            val display: String,
+            val pattern: String,
+            val exclusions: List<String> = emptyList()
+        )
+
+        val procs = listOf(
+            // 核心服务
+            ProcDef("manager", "进程管家", "manager\\.py"),
+            ProcDef("selfdrived", "驾驶状态机", "selfdrived"),
+            ProcDef("controlsd", "车辆控制", "controlsd"),
+            ProcDef("plannerd", "路径规划", "plannerd"),
+            // 感知模型 - modeld/modeld_snpe/modeld_tinygrad 互斥，dmonitoringmodeld 独立
+            ProcDef("camerad", "摄像头驱动", "camerad"),
+            ProcDef("modeld", "AI模型(modeld)", "modeld", listOf("dmonitoring", "modeld_snpe", "modeld_tinygrad")),
+            ProcDef("modeld_snpe", "AI模型(SNPE)", "modeld_snpe"),
+            ProcDef("modeld_tinygrad", "AI模型(TinyGrad)", "modeld_tinygrad"),
+            ProcDef("dmonitoringmodeld", "驾驶员监控模型", "dmonitoringmodeld"),
+            // 定位
+            ProcDef("locationd", "定位服务", "locationd"),
+            ProcDef("calibrationd", "校准服务", "calibrationd"),
+            ProcDef("paramsd", "参数服务", "paramsd"),
+            // 硬件
+            ProcDef("pandad", "Panda通信", "pandad"),
+            ProcDef("hardwared", "硬件监控", "hardwared"),
+            // 日志与通信
+            ProcDef("loggerd", "日志记录", "loggerd"),
+            ProcDef("uploader", "数据上传", "uploader"),
+            ProcDef("athenad", "云端连接", "athenad"),
+            // UI - 匹配 selfdrive/ui 路径
+            ProcDef("ui", "车机界面", "selfdrive/ui"),
+            // 其他
+            ProcDef("sensord", "传感器", "sensord"),
+            ProcDef("deleter", "日志清理", "deleter"),
+            ProcDef("dmonitoringd", "驾驶员监控", "dmonitoringd"),
+        )
+
+        return procs.joinToString("; ") { def ->
+            val grepCmd = if (def.exclusions.isEmpty()) {
+                "pgrep -f '${def.pattern}' | wc -l"
+            } else {
+                "pgrep -f '${def.pattern}' | grep -v ${def.exclusions.joinToString(" -e ") { "-e '$it'" }} | wc -l"
+            }
+            "echo \"${def.name}|${def.display}:\$($grepCmd)\""
         }
     }
 
