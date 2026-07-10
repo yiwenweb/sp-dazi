@@ -5,17 +5,19 @@ import com.sunnypilot.toolbox.data.SshManager
 /**
  * 视频流控制仓库
  *
- * 负责通过 SSH 控制 C3 端的 WebRTC 摄像头流开关（WebrtcStreamEnabled 参数）。
+ * 负责通过 SSH 控制 C3 端的 WebRTC 摄像头流开关。
  *
  * 说明：
- * - WebrtcStreamEnabled 是 openpilot 持久化参数（PERSISTENT | BACKUP），重启后保持。
- * - 该参数仅在 onroad（车辆启动）时才会真正拉起 stream_encoderd + webrtcd 进程。
- * - 通过 openpilot Params API 写入，保证与进程管理器一致的读写语义。
+ * - 直接写 /data/params/d/ 下的参数文件，避免依赖 C3 系统 Python（无 zmq 模块）。
+ * - 同时写入 WebrtcStreamEnabled + IsDriverViewEnabled 两个参数：
+ *   - WebrtcStreamEnabled：拉起 stream_encoderd + webrtcd 进程
+ *   - IsDriverViewEnabled：拉起 camerad（摄像头驱动），offroad 也生效
+ * - 两个参数均通过文件直接写入，绕过 params_pyx 白名单限制。
  */
 class VideoStreamRepository(
     private val sshManager: SshManager
 ) {
-    /** 开启 C3 端 WebRTC 摄像头流（写持久化参数，onroad 时生效） */
+    /** 开启 C3 端 WebRTC 摄像头流 */
     suspend fun enableWebrtcStream(): Result<Unit> =
         setWebrtcStream(true)
 
@@ -24,11 +26,13 @@ class VideoStreamRepository(
         setWebrtcStream(false)
 
     private suspend fun setWebrtcStream(enabled: Boolean): Result<Unit> {
-        val py = "from openpilot.common.params import Params; " +
-            "Params().put_bool('WebrtcStreamEnabled', ${if (enabled) "True" else "False"})"
-        return sshManager.executeCommand(
-            "cd /data/openpilot && python3 -c \"$py\""
-        ).map { }
+        val valStr = if (enabled) "1" else "0"
+        // 直接写文件，不依赖 Python/zmq 环境
+        // WebrtcStreamEnabled: 控制 stream_encoderd + webrtcd
+        // IsDriverViewEnabled: 控制 camerad（摄像头驱动，offroad 也需开启）
+        val cmd = "echo -n '$valStr' > /data/params/d/WebrtcStreamEnabled && " +
+                  "echo -n '$valStr' > /data/params/d/IsDriverViewEnabled"
+        return sshManager.executeCommand(cmd).map { }
     }
 
     /** 读取当前 WebRTC 流开关状态 */
