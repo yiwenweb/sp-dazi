@@ -167,7 +167,7 @@ fun MainScreen(
             }.fold(
                 onSuccess = { backupFile ->
                     backupResult = "备份成功！\n文件：${backupFile.name}\n大小：${"%,d".format(backupFile.length())} 字节"
-                    BackupManager.shareBackup(context, backupFile)
+                    BackupManager.saveBackup(context, backupFile)
                 },
                 onFailure = { e ->
                     backupResult = "备份失败：${e.message}"

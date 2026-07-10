@@ -1,11 +1,9 @@
 package com.sunnypilot.toolbox.data
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import com.sunnypilot.toolbox.model.AuthType
 import com.sunnypilot.toolbox.model.ConnectionConfig
 import kotlinx.coroutines.Dispatchers
@@ -179,21 +177,31 @@ object BackupManager {
         }
     }
 
-    /** 分享备份文件 */
-    fun shareBackup(context: Context, backupFile: File) {
+    /** 保存备份文件到下载目录 */
+    fun saveBackup(context: Context, backupFile: File) {
         try {
-            val uri = FileProvider.getUriForFile(
-                context, "${context.packageName}.fileprovider", backupFile
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS
             )
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/zip"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "SunnyPilot Toolbox 数据备份")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(intent, "保存备份文件"))
+            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+            val dest = File(downloadsDir, backupFile.name)
+            backupFile.copyTo(dest, overwrite = true)
+            Toast.makeText(
+                context,
+                "备份已保存到 Download/${backupFile.name}",
+                Toast.LENGTH_LONG
+            ).show()
         } catch (e: Exception) {
-            Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            // 回退：尝试保存到应用私有目录并提示
+            try {
+                val privateDir = File(context.filesDir, "backups")
+                privateDir.mkdirs()
+                val dest = File(privateDir, backupFile.name)
+                backupFile.copyTo(dest, overwrite = true)
+                Toast.makeText(context, "备份已保存到应用内部存储", Toast.LENGTH_LONG).show()
+            } catch (e2: Exception) {
+                Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
