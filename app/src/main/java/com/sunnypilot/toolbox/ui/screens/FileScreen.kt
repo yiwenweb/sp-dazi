@@ -87,29 +87,6 @@ fun FileScreen(
     var showEditTooLarge by remember { mutableStateOf(false) }
     var tooLargeFile by remember { mutableStateOf<FileEntry?>(null) }
 
-    // 上传启动器
-    val uploadLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val fileName = getFileName(context, uri) ?: "uploaded_file"
-            val tempFile = java.io.File(context.cacheDir, fileName)
-            try {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    tempFile.outputStream().use { output -> input.copyTo(output) }
-                }
-                val remotePath = if (currentPath == "/") "/$fileName" else "$currentPath/$fileName"
-                repo.uploadFile(tempFile.absolutePath, remotePath).fold(
-                    onSuccess = { loadDir(currentPath) },
-                    onFailure = { errorMsg = "上传失败: ${it.message}" }
-                )
-            } finally {
-                tempFile.delete()
-            }
-        }
-    }
-
     fun loadDir(path: String) {
         scope.launch {
             isLoading = true
@@ -134,6 +111,29 @@ fun FileScreen(
                 onFailure = { errorMsg = it.message }
             )
             isLoading = false
+        }
+    }
+
+    // 上传启动器
+    val uploadLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val fileName = getFileName(context, uri) ?: "uploaded_file"
+            val tempFile = java.io.File(context.cacheDir, fileName)
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                val remotePath = if (currentPath == "/") "/$fileName" else "$currentPath/$fileName"
+                repo.uploadFile(tempFile.absolutePath, remotePath).fold(
+                    onSuccess = { loadDir(currentPath) },
+                    onFailure = { errorMsg = "上传失败: ${it.message}" }
+                )
+            } finally {
+                tempFile.delete()
+            }
         }
     }
 
