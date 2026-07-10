@@ -151,8 +151,22 @@ var fpsFrames=0, fpsLastTime=0, fpsVal=0;
 var GEAR_MAP = {park:'P', reverse:'R', neutral:'N', drive:'D', sport:'S', low:'L', brake:'B', unknown:'-'};
 
 // ===== 从 carState 更新基础 HUD =====
-var curEgo = 0;
+var curEgo = 0, hudTimeout = null;
+function resetHud(){
+  document.getElementById('hudSpeed').textContent = '0';
+  document.getElementById('hudGear').textContent = '--';
+  document.getElementById('hudGearMini').textContent = '';
+  document.getElementById('hudCruise').textContent = '--';
+  document.getElementById('hudCruiseTop').textContent = '--';
+  document.getElementById('hudSteer').textContent = '--';
+  document.getElementById('hudTrq').textContent = '--';
+  document.getElementById('hudLead').textContent = '--';
+  document.getElementById('trqFill').style.width = '0%';
+  leadInd.style.display='none';
+  accelBar.style.display='none';
+}
 function updateCarState(s){
+  if(hudTimeout){ clearTimeout(hudTimeout); hudTimeout=null; }
   hud.style.display=''; speedo.style.display='';
   if(s.vEgo != null){ curEgo = s.vEgo; document.getElementById('hudSpeed').textContent = (s.vEgo*3.6).toFixed(0); }
   var accEl = document.getElementById('hudAcc');
@@ -191,6 +205,8 @@ function updateCarState(s){
     document.getElementById('trqFill').style.width = trqPct+'%';
     document.getElementById('trqFill').style.background = Math.abs(trq)>800 ? '#fbbf24' : '#64748b';
   }
+  // 3秒无数据自动清空HUD
+  hudTimeout = setTimeout(resetHud, 3000);
 }
 
 // ===== 从 modelV2 更新前车信息 =====
@@ -351,6 +367,7 @@ function scheduleRetry(msg){
   retryTimer=setTimeout(connect, 3000);
 }
 function cleanup(){
+  if(hudTimeout){ clearTimeout(hudTimeout); hudTimeout=null; }
   if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
   if(dc){ try{ dc.close(); }catch(e){} dc=null; }
   if(pc){ try{ pc.close(); }catch(e){} pc=null; }
