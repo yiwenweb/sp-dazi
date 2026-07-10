@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.SshShell
 import com.sunnypilot.toolbox.data.db.AppDatabase
-import com.sunnypilot.toolbox.service.QuickCommandWebServer
+import com.sunnypilot.toolbox.service.WebManagerServer
 import com.sunnypilot.toolbox.ui.theme.*
 import com.sunnypilot.toolbox.ui.util.AnsiParser
 import com.sunnypilot.toolbox.ui.util.QrCodeUtil
@@ -49,13 +49,13 @@ fun TerminalScreen(
     val quickCommandDao = remember { db.quickCommandDao() }
     val commands by quickCommandDao.getAll().collectAsState(initial = emptyList())
     var serverUrl by remember { mutableStateOf<String?>(null) }
-    var server by remember { mutableStateOf<QuickCommandWebServer?>(null) }
+    var server by remember { mutableStateOf<WebManagerServer?>(null) }
     var serverRunning by remember { mutableStateOf(false) }
 
     fun startServer() {
         for (port in 8080..8090) {
             try {
-                val s = QuickCommandWebServer(port, quickCommandDao)
+                val s = WebManagerServer(port, quickCommandDao, sshManager)
                 s.start()
                 server = s
                 val ip = QrCodeUtil.getLocalIpAddress()

@@ -1,6 +1,7 @@
 package com.sunnypilot.toolbox.ui.screens
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
 import android.provider.OpenableColumns
@@ -8,6 +9,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -37,7 +40,10 @@ import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.repository.FileRepository
 import com.sunnypilot.toolbox.model.FileEntry
 import com.sunnypilot.toolbox.ui.theme.*
+import com.sunnypilot.toolbox.ui.util.QrCodeUtil
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,6 +92,22 @@ fun FileScreen(
     // 文件太大不可编辑的提示
     var showEditTooLarge by remember { mutableStateOf(false) }
     var tooLargeFile by remember { mutableStateOf<FileEntry?>(null) }
+
+    // 二维码弹窗
+    var showQrDialog by remember { mutableStateOf(false) }
+    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var qrUrl by remember { mutableStateOf("") }
+
+    LaunchedEffect(showQrDialog) {
+        if (showQrDialog && qrBitmap == null) {
+            val ip = QrCodeUtil.getLocalIpAddress()
+            val url = ip?.let { "http://$it:8080" } ?: ""
+            qrUrl = url
+            qrBitmap = withContext(Dispatchers.Default) {
+                if (url.isNotEmpty()) QrCodeUtil.generateQrCode(url, 300) else null
+            }
+        }
+    }
 
     fun loadDir(path: String) {
         scope.launch {
@@ -214,6 +236,18 @@ fun FileScreen(
                             if (isSearching) Icons.Default.Close else Icons.Default.Search,
                             "搜索",
                             tint = if (isSearching) Red500 else Teal500
+                        )
+                    }
+
+                    // 二维码 - 扫描进入 Web 管理页面
+                    IconButton(onClick = {
+                        qrBitmap = null
+                        showQrDialog = true
+                    }) {
+                        Icon(
+                            Icons.Default.QrCode,
+                            "扫码管理",
+                            tint = Teal500
                         )
                     }
 
@@ -577,6 +611,70 @@ fun FileScreen(
                 ) { Text("创建") }
             },
             dismissButton = { TextButton(onClick = { showNewFolder = false }) { Text("取消") } }
+        )
+    }
+
+    // ── 二维码弹窗 ──
+    if (showQrDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showQrDialog = false
+                qrBitmap = null
+            },
+            title = {
+                Text("扫码访问 Web 管理", fontWeight = FontWeight.Bold, color = Slate900)
+            },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (qrBitmap != null) {
+                        Image(
+                            bitmap = qrBitmap!!.asImageBitmap(),
+                            contentDescription = "Web管理二维码",
+                            modifier = Modifier.size(220.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = qrUrl,
+                            color = Slate600,
+                            fontSize = 13.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "用手机或电脑浏览器扫码，即可在同一局域网内",
+                            color = Slate500,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "管理 C3 文件、快捷命令",
+                            color = Slate500,
+                            fontSize = 12.sp
+                        )
+                    } else if (qrUrl.isEmpty()) {
+                        Text(
+                            text = "未获取到局域网 IP，请确认已连接 WiFi",
+                            color = Slate500,
+                            fontSize = 14.sp
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            color = Teal500,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showQrDialog = false
+                    qrBitmap = null
+                }) {
+                    Text("关闭", color = Teal500)
+                }
+            }
         )
     }
 }
