@@ -31,6 +31,7 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     Video("视频预览", Icons.Default.Videocam, true),
     Files("文件", Icons.Default.Folder, true),
     Calc("智能计算", Icons.Default.Calculate, true),
+    Tune("横向调参", Icons.Default.Tune, true),
     Shortcuts("一键下发", Icons.Default.Send),
     Share("分享中心", Icons.Default.Share),
     Backup("备份", Icons.Default.CloudUpload),
