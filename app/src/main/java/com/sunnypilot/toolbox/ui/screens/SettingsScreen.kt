@@ -1,7 +1,6 @@
 package com.sunnypilot.toolbox.ui.screens
 
 import android.widget.Toast
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
