@@ -151,7 +151,7 @@ var fpsFrames=0, fpsLastTime=0, fpsVal=0;
 var GEAR_MAP = {park:'P', reverse:'R', neutral:'N', drive:'D', sport:'S', low:'L', brake:'B', unknown:'-'};
 
 // ===== 从 carState 更新基础 HUD =====
-var curEgo = 0, hudTimeout = null;
+var curEgo = 0;
 function resetHud(){
   document.getElementById('hudSpeed').textContent = '0';
   document.getElementById('hudGear').textContent = '--';
@@ -166,7 +166,6 @@ function resetHud(){
   accelBar.style.display='none';
 }
 function updateCarState(s){
-  if(hudTimeout){ clearTimeout(hudTimeout); hudTimeout=null; }
   hud.style.display=''; speedo.style.display='';
   if(s.vEgo != null){ curEgo = s.vEgo; document.getElementById('hudSpeed').textContent = (s.vEgo*3.6).toFixed(0); }
   var accEl = document.getElementById('hudAcc');
@@ -205,8 +204,6 @@ function updateCarState(s){
     document.getElementById('trqFill').style.width = trqPct+'%';
     document.getElementById('trqFill').style.background = Math.abs(trq)>800 ? '#fbbf24' : '#64748b';
   }
-  // 3秒无数据自动清空HUD
-  hudTimeout = setTimeout(resetHud, 3000);
 }
 
 // ===== 从 modelV2 更新前车信息 =====
@@ -335,8 +332,18 @@ async function connect(){
 
     // ===== DataChannel：接收 HUD 数据 =====
     dc = pc.createDataChannel('data', {ordered:true});
-    dc.onopen = function(){ setStatus('HUD 已连接'); };
-    dc.onclose = function(){ dc=null; };
+    dc.onopen = function(){
+      setStatus('HUD 已连接');
+      // 立即显示 HUD 面板（占位符），即使还没有 carState 数据
+      hud.style.display=''; speedo.style.display=''; info.style.display='';
+      resetHud();
+    };
+    dc.onclose = function(){
+      dc=null;
+      // 断开时隐藏面板
+      hud.style.display='none'; speedo.style.display='none';
+      leadInd.style.display='none'; accelBar.style.display='none';
+    };
     dc.onmessage = onMessage;
 
     var offer=await pc.createOffer();
@@ -367,7 +374,6 @@ function scheduleRetry(msg){
   retryTimer=setTimeout(connect, 3000);
 }
 function cleanup(){
-  if(hudTimeout){ clearTimeout(hudTimeout); hudTimeout=null; }
   if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
   if(dc){ try{ dc.close(); }catch(e){} dc=null; }
   if(pc){ try{ pc.close(); }catch(e){} pc=null; }
