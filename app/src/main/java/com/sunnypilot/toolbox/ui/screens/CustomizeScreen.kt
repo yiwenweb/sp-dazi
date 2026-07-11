@@ -68,6 +68,8 @@ fun CustomizeScreen(
     var showVolumeApplied by remember { mutableStateOf(false) }
     var customSoundStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var hasCustomBootImage by remember { mutableStateOf<Boolean?>(null) }
+    var bootPreviewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var bootPreviewLoading by remember { mutableStateOf(false) }
 
     // 折叠面板
     val expandedPanels = remember { mutableStateMapOf("boot" to true, "sounds" to false, "volume" to false) }
@@ -76,11 +78,28 @@ fun CustomizeScreen(
         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
     }
 
+    // 加载启动图片预览
+    fun loadBootPreview() {
+        scope.launch {
+            bootPreviewLoading = true
+            repository.downloadBootImagePreview(context).fold(
+                onSuccess = { file ->
+                    bootPreviewBitmap = try {
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                    } catch (_: Exception) { null }
+                },
+                onFailure = { bootPreviewBitmap = null }
+            )
+            bootPreviewLoading = false
+        }
+    }
+
     // 加载初始数据
     LaunchedEffect(Unit) {
         repository.getVolume().onSuccess { volumeValue = it }
         repository.getCustomSoundStatus().onSuccess { customSoundStatus = it }
         repository.hasCustomBootImage().onSuccess { hasCustomBootImage = it }
+        loadBootPreview()
     }
 
     // 文件选择器
@@ -96,6 +115,7 @@ fun CustomizeScreen(
                     onSuccess = { msg ->
                         statusMessage = msg
                         hasCustomBootImage = true
+                        loadBootPreview()
                         showToast(msg)
                     },
                     onFailure = { e ->
@@ -249,76 +269,125 @@ fun CustomizeScreen(
                 accentColor = C3Blue
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    // 当前状态
+                    // 状态指示条
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(C3Card, RoundedCornerShape(12.dp))
-                            .padding(12.dp)
+                            .background(
+                                if (hasCustomBootImage == true) C3Green.copy(alpha = 0.08f) else C3Card,
+                                RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
                         Icon(
-                            if (hasCustomBootImage == true) Icons.Default.Brush else Icons.Default.Image,
+                            imageVector = when {
+                                bootPreviewLoading -> Icons.Default.HourglassEmpty
+                                hasCustomBootImage == true -> Icons.Default.Brush
+                                else -> Icons.Default.Image
+                            },
                             contentDescription = null,
-                            tint = if (hasCustomBootImage == true) C3Green else C3SubText,
+                            tint = when {
+                                bootPreviewLoading -> C3Yellow
+                                hasCustomBootImage == true -> C3Green
+                                else -> C3SubText
+                            },
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("当前状态", fontSize = 11.sp, color = C3SubText)
                             Text(
-                                "当前状态",
-                                fontSize = 12.sp,
-                                color = C3SubText
-                            )
-                            Text(
-                                when (hasCustomBootImage) {
-                                    true -> "使用自定义启动图片"
-                                    false -> "使用原始启动图片"
-                                    null -> "检测中..."
+                                when {
+                                    bootPreviewLoading -> "正在加载预览..."
+                                    hasCustomBootImage == true -> "正在使用自定义启动图片"
+                                    hasCustomBootImage == false -> "正在使用原始启动图片"
+                                    else -> "检测中..."
                                 },
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = if (hasCustomBootImage == true) C3Green else C3Text
+                                color = when {
+                                    bootPreviewLoading -> C3Yellow
+                                    hasCustomBootImage == true -> C3Green
+                                    else -> C3Text
+                                }
                             )
+                        }
+                        if (bootPreviewLoading) {
+                            CircularProgressIndicator(color = C3Yellow, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
                         }
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
 
-                    // 预览说明
+                    // 图片预览卡片
                     Surface(
                         color = C3CardAlt,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.PhoneAndroid,
-                                contentDescription = null,
-                                tint = C3Accent.copy(alpha = 0.6f),
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(Modifier.height(12.dp))
+                            // 预览图
+                            val preview = bootPreviewBitmap
+                            if (preview != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(140.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(2.dp, C3Divider, RoundedCornerShape(12.dp))
+                                        .background(C3Bg),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = preview.asImageBitmap(),
+                                        contentDescription = "启动图片预览",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                            } else {
+                                // 无预览时的占位
+                                Box(
+                                    modifier = Modifier
+                                        .size(140.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(1.5.dp, C3Divider.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                        .background(C3Card),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            Icons.Default.PhoneAndroid,
+                                            contentDescription = null,
+                                            tint = C3Accent.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                        Text("暂无预览", fontSize = 11.sp, color = C3SubText)
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(10.dp))
                             Text(
-                                "360×360 PNG 图片",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = C3Text
+                                if (hasCustomBootImage == true) "已自定义（左下角图标）" else "原始 sunnypilot LOGO",
+                                fontSize = 12.sp,
+                                color = if (hasCustomBootImage == true) C3Green else C3SubText
                             )
+                            Spacer(Modifier.height(4.dp))
                             Text(
-                                "上传一张新的启动图片，将替换 C3 开机时显示的 sunnypilot LOGO。支持 PNG 格式，建议分辨率 360×360。",
-                                fontSize = 11.sp,
+                                "建议 360×360 PNG，上传后重启 openpilot 生效",
+                                fontSize = 10.sp,
                                 color = C3SubText,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(top = 6.dp)
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
 
                     // 操作按钮
                     Row(
@@ -338,7 +407,7 @@ fun CustomizeScreen(
                             Text("上传新图片", fontSize = 12.sp)
                         }
 
-                        // 恢复按钮
+                        // 恢复默认按钮 — 任何时候可用
                         OutlinedButton(
                             onClick = {
                                 scope.launch {
@@ -348,6 +417,7 @@ fun CustomizeScreen(
                                             statusMessage = msg
                                             showStatus = true
                                             hasCustomBootImage = false
+                                            loadBootPreview()
                                             showToast(msg)
                                         },
                                         onFailure = { e ->
@@ -360,23 +430,13 @@ fun CustomizeScreen(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = C3Red),
-                            enabled = !isLoading && hasCustomBootImage == true
+                            enabled = !isLoading
                         ) {
                             Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("恢复原始", fontSize = 12.sp)
+                            Text("恢复默认", fontSize = 12.sp)
                         }
                     }
-
-                    Text(
-                        "更换后需重启 openpilot 才能看到效果",
-                        fontSize = 10.sp,
-                        color = C3SubText,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                    )
                 }
             }
 
