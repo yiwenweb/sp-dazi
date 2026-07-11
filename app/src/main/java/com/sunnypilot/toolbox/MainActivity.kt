@@ -37,6 +37,7 @@ import com.sunnypilot.toolbox.ui.components.NavItem
 import com.sunnypilot.toolbox.ui.components.SideNavBar
 import com.sunnypilot.toolbox.ui.components.TopBar
 import com.sunnypilot.toolbox.ui.screens.ConnectionScreen
+import com.sunnypilot.toolbox.ui.screens.CustomizeScreen
 import com.sunnypilot.toolbox.ui.screens.DataCenterScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
@@ -271,6 +272,9 @@ fun MainScreen(
                                 sshManager = sshManager
                             )
                             NavItem.Calc -> LateralTuneScreen(
+                                sshManager = sshManager
+                            )
+                            NavItem.Customize -> CustomizeScreen(
                                 sshManager = sshManager
                             )
                             NavItem.Tune -> LateralParamsScreen(
