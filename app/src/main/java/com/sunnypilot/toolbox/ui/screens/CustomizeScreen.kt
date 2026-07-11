@@ -108,15 +108,19 @@ fun CustomizeScreen(
         }
     }
 
-    fun soundPickerLauncher(soundDef: CustomizeRepository.SoundDef) = rememberLauncherForActivityResult(
+    // 声音选择器 — 使用单个 launcher + 状态变量跟踪当前选中的声音
+    var pendingSoundDef by remember { mutableStateOf<CustomizeRepository.SoundDef?>(null) }
+    val audioPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
+        val def = pendingSoundDef ?: return@rememberLauncherForActivityResult
+        pendingSoundDef = null
         if (uri != null) {
             scope.launch {
                 isLoading = true
-                statusMessage = "正在上传${soundDef.name}声音..."
+                statusMessage = "正在上传${def.name}声音..."
                 showStatus = true
-                repository.uploadSoundFile(context, soundDef, uri).fold(
+                repository.uploadSoundFile(context, def, uri).fold(
                     onSuccess = { msg ->
                         statusMessage = msg
                         showToast(msg)
@@ -130,6 +134,11 @@ fun CustomizeScreen(
                 isLoading = false
             }
         }
+    }
+
+    fun pickSoundFile(soundDef: CustomizeRepository.SoundDef) {
+        pendingSoundDef = soundDef
+        audioPickerLauncher.launch("audio/*")
     }
 
     Box(modifier = modifier.fillMaxSize().background(C3Bg)) {
@@ -395,7 +404,7 @@ fun CustomizeScreen(
                             soundDef = soundDef,
                             isCustomized = isCustomized,
                             isLoading = isLoading,
-                            onUpload = { soundPickerLauncher(soundDef).launch("audio/*") },
+                            onUpload = { pickSoundFile(soundDef) },
                             onRestore = {
                                 scope.launch {
                                     isLoading = true

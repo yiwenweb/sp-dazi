@@ -225,7 +225,6 @@ class CustomizeRepository(
             val previewFile = File(context.cacheDir, "boot_preview.png")
             sshManager.downloadFile(SPINNER_IMAGE_PATH, previewFile)
                 .map { previewFile }
-                .getOrThrow()
         }
     }
 }
