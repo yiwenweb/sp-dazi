@@ -32,6 +32,7 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     Files("文件", Icons.Default.Folder, true),
     Calc("智能计算", Icons.Default.Calculate, true),
     Tune("横向调参", Icons.Default.Tune, true),
+    Debug("故障抓包", Icons.Default.BugReport, true),
     Customize("个性化", Icons.Default.Palette, true),
     Shortcuts("一键下发", Icons.Default.Send),
     Share("分享中心", Icons.Default.Share),
