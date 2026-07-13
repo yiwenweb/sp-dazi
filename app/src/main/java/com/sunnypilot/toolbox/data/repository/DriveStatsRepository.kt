@@ -179,16 +179,46 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
         return score.coerceIn(0, 100)
     }
 
-    // ── 同步（v3：自动部署 + 增量 + 合并） ────────────────────
+    // ── 同步（v4：本地空→读C3缓存优先，避免重装后重复计算） ──
+
+    /** C3 端缓存文件路径 */
+    private val C3_CACHE_FILE = "$APP_DATA_DIR/drive_stats.json"
+
+    /** 检查本地数据库是否为空 */
+    private suspend fun isDbEmpty(): Boolean = withContext(Dispatchers.IO) {
+        dao.getEarliestDate() == null
+    }
+
+    /**
+     * 从 C3 缓存文件直接加载全量统计数据（无需重新计算，秒级）。
+     * 用于重装 App / 清数据后快速恢复。
+     */
+    private suspend fun loadCachedStatsFromC3(): Result<Int> {
+        val cached = sshManager.readFile(C3_CACHE_FILE).getOrElse {
+            return Result.failure(it)
+        }
+        if (cached.isBlank()) return Result.success(0)
+
+        return runCatching {
+            val array = JSONArray(cached)
+            val stats = mutableListOf<DriveStats>()
+            for (i in 0 until array.length()) {
+                stats.add(parseJsonToDriveStats(array.getJSONObject(i)))
+            }
+            dao.insertAll(stats)
+            Log.i(TAG, "从 C3 缓存恢复 ${stats.size} 天历史数据")
+            stats.size
+        }
+    }
 
     /**
      * 从 C3 增量同步驾驶统计数据。
      *
-     * 流程：
-     *   1. 检查脚本是否存在，不存在则自动从 assets 部署
-     *   2. 以 --incremental 模式执行，C3 端自动跳过已处理的 segment
-     *   3. 解析 JSON → 合并写入本地 Room（REPLACE 策略，不丢失历史）
-     *   4. 结果同时缓存到 C3 /data/appdata/drive_stats.json
+     * 智能流程：
+     *   1. 确保脚本已部署（缺失则自动部署）
+     *   2. 本地 DB 为空 + C3 有缓存 → 直接读缓存恢复（秒级），再增量追新数据
+     *   3. 本地 DB 为空 + C3 无缓存 → 全量扫描（首次使用）
+     *   4. 本地 DB 有数据 → 增量同步（仅新 segment）
      */
     suspend fun syncFromDevice(
         onStage: (String, SyncStatus) -> Unit = { _, _ -> },
@@ -209,7 +239,40 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
             Log.i(TAG, "calc_drive_stats.py 已自动部署到 C3")
         }
 
-        // Step 2: 检查是否有 segment 数据
+        // Step 2: 智能判断同步策略
+        val dbEmpty = isDbEmpty()
+
+        // ── 策略A：本地为空 + C3 有缓存 → 直接读缓存恢复历史数据 ──
+        if (dbEmpty && !forceFull) {
+            onStage("正在从 C3 缓存恢复数据…", SyncStatus.CHECKING)
+            val hasCache = sshManager.executeCommand(
+                "[ -f $C3_CACHE_FILE ] && echo 1 || echo 0"
+            ).getOrDefault("0").trim() == "1"
+
+            if (hasCache) {
+                onStage("正在加载历史数据（秒级）…", SyncStatus.PARSING)
+                val cachedCount = loadCachedStatsFromC3().getOrElse { 0 }
+                Log.i(TAG, "从 C3 缓存恢复 $cachedCount 天数据")
+
+                // 缓存恢复后，再跑一次增量同步追最新数据
+                onStage("正在检查新数据…", SyncStatus.COMPUTING)
+                val rawOutput = sshManager.executeCommand(
+                    "cd $C3_OPENPILOT && /usr/local/venv/bin/python $REMOTE_SCRIPT --incremental"
+                ).getOrElse {
+                    // 增量失败不影响已有数据
+                    Log.w(TAG, "增量同步失败: ${it.message}")
+                    return@withContext Result.success(cachedCount)
+                }
+                val merged = mergeStatsFromOutput(rawOutput)
+                val total = if (merged > 0) cachedCount + merged else cachedCount
+                return@withContext Result.success(total)
+            }
+            // 无缓存 → 降级为全量扫描
+            Log.i(TAG, "C3 无缓存，执行全量扫描")
+        }
+
+        // ── 策略B：正常增量 / 全量扫描 ──
+        // Step 3: 检查是否有 segment 数据
         onStage("正在检查数据…", SyncStatus.CHECKING)
         val hasData = sshManager.executeCommand(
             "ls ${C3_REALDATA}/*--* 2>/dev/null | head -1 || echo ''"
@@ -219,17 +282,23 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
             return@withContext Result.success(0)
         }
 
-        // Step 3: 执行统计脚本（增量模式）
-        val flag = if (forceFull) "--full" else "--incremental"
-        onStage("正在远程计算统计（约 30~60 秒）…", SyncStatus.COMPUTING)
+        // Step 4: 执行统计脚本
+        val flag = if (forceFull || dbEmpty) "--full" else "--incremental"
+        val stageMsg = if (forceFull || dbEmpty) "正在全量统计（约 1~3 分钟）…" else "正在增量统计（约 5~30 秒）…"
+        onStage(stageMsg, SyncStatus.COMPUTING)
         val rawOutput = sshManager.executeCommand(
             "cd $C3_OPENPILOT && /usr/local/venv/bin/python $REMOTE_SCRIPT $flag"
         ).getOrElse {
             return@withContext Result.failure(Exception("脚本执行失败: ${it.message}"))
         }
 
-        // Step 4: 从输出中提取 JSON 数组
-        onStage("正在解析数据…", SyncStatus.PARSING)
+        // Step 5: 解析 JSON → 合并保存
+        val count = mergeStatsFromOutput(rawOutput)
+        return@withContext Result.success(count)
+    }
+
+    /** 从脚本 stdout 提取 JSON 并合并到本地数据库，返回记录数 */
+    private fun mergeStatsFromOutput(rawOutput: String): Int {
         val jsonStr = runCatching {
             val t = rawOutput.trim()
             val start = t.indexOf('[')
@@ -237,35 +306,20 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
             if (start < 0 || end <= start) throw Exception("输出中未找到 JSON 数组")
             t.substring(start, end + 1)
         }.getOrElse {
-            return@withContext Result.failure(
-                Exception("C3 脚本输出异常。原始输出:\n${rawOutput.take(500)}")
-            )
+            Log.w(TAG, "解析脚本输出失败: ${it.message}")
+            return 0
         }
 
-        // Step 5: 解析 JSON → 合并保存到本地（不擦除历史数据）
-        onStage("正在保存到本地数据库…", SyncStatus.SAVING)
-        runCatching {
-            val array = JSONArray(jsonStr)
-            if (array.length() == 0) {
-                return@withContext Result.success(0)
-            }
+        val array = JSONArray(jsonStr)
+        if (array.length() == 0) return 0
 
-            val stats = mutableListOf<DriveStats>()
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                stats.add(parseJsonToDriveStats(obj))
-            }
-
-            // 增量合并：REPLACE 策略自动更新已存在的日期，保留历史上传日期的数据
-            dao.insertAll(stats)
-
-            Log.i(TAG, "同步完成：${stats.size} 天数据已合并到本地")
-            return@withContext Result.success(stats.size)
-        }.onFailure { e ->
-            return@withContext Result.failure(
-                Exception("解析统计结果失败: ${e.message}\n原始输出:\n${rawOutput.take(500)}")
-            )
+        val stats = mutableListOf<DriveStats>()
+        for (i in 0 until array.length()) {
+            stats.add(parseJsonToDriveStats(array.getJSONObject(i)))
         }
+        dao.insertAll(stats)
+        Log.i(TAG, "合并保存 ${stats.size} 天数据到本地")
+        return stats.size
     }
 
     // ── 仅部署脚本（供 UI 手动触发） ──────────────────────────
