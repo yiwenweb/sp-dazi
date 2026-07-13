@@ -298,7 +298,7 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
     }
 
     /** 从脚本 stdout 提取 JSON 并合并到本地数据库，返回记录数 */
-    private fun mergeStatsFromOutput(rawOutput: String): Int {
+    private suspend fun mergeStatsFromOutput(rawOutput: String): Int = withContext(Dispatchers.IO) {
         val jsonStr = runCatching {
             val t = rawOutput.trim()
             val start = t.indexOf('[')
@@ -307,11 +307,11 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
             t.substring(start, end + 1)
         }.getOrElse {
             Log.w(TAG, "解析脚本输出失败: ${it.message}")
-            return 0
+            return@withContext 0
         }
 
         val array = JSONArray(jsonStr)
-        if (array.length() == 0) return 0
+        if (array.length() == 0) return@withContext 0
 
         val stats = mutableListOf<DriveStats>()
         for (i in 0 until array.length()) {
@@ -319,7 +319,7 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
         }
         dao.insertAll(stats)
         Log.i(TAG, "合并保存 ${stats.size} 天数据到本地")
-        return stats.size
+        stats.size
     }
 
     // ── 仅部署脚本（供 UI 手动触发） ──────────────────────────
