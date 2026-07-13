@@ -61,7 +61,7 @@ def bit(b, n):
 
 
 def latest_segments(n=3):
-    segs = sorted(glob.glob(os.path.join(REALDATA, "0*--*")),
+    segs = sorted(glob.glob(os.path.join(REALDATA, "*--*")),
                   key=lambda p: os.path.getmtime(p), reverse=True)
     return segs[:n]
 
@@ -293,15 +293,25 @@ def main():
 
         if sm.updated['onroadEvents']:
             names = []
+            has_alert = False
             for e in sm['onroadEvents']:
                 try:
-                    names.append(str(e.name))
+                    n = str(e.name)
+                    names.append(n)
+                    # 高级别告警触发 ALERT（兜底，覆盖 ACC 报错等系统级事件）
+                    if n in ("controlsMismatch", "commIssue", "cameraMalfunction",
+                             "steerUnavailable", "driverDistracted", "driverUnresponsive"):
+                        has_alert = True
                 except Exception:
                     pass
             if names:
                 buf.append((now, 'onroadEvents', names))
+            if has_alert and can_trigger("ALERT", now):
+                start_dump("ALERT", "onroadEvents 高级别告警: %s" % ",".join(names), now)
 
-        trim(now)
+        # 触发后不裁剪缓冲，确保 dump 时保留完整的前 BUFFER_SEC 秒数据
+        if not dumping_until:
+            trim(now)
 
         if now - last_proc_check >= 2.0:
             last_proc_check = now
