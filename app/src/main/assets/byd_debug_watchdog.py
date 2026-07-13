@@ -244,7 +244,7 @@ def main():
                 can_list.append((c.address, c.src, b.hex()))
                 if len(b) < 8:
                     continue
-                if c.address == A_318 and c.src < 128:
+                if c.address == A_318 and (c.src is None or c.src < 128):
                     tf = bit(b, 2)
                     cru = bit(b, 1)
                     cur_tqf = tf
