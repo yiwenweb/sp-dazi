@@ -63,8 +63,9 @@ fun DataCenterScreen(
     // 数据概况弹窗（扳手第一步—看数据，确定后再启动获取）
     var showSyncOverview by remember { mutableStateOf(false) }
 
-    // 脚本部署状态
+    // 脚本部署与运行状态
     var scriptDeployed by remember { mutableStateOf<Boolean?>(null) }
+    var scriptRunning by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
 
     // 观察 SyncStateHolder 的后台同步状态（进程级，离开页面也不会停）
@@ -79,6 +80,7 @@ fun DataCenterScreen(
             stats = data
             if (sshManager.isConnected()) {
                 repository.isScriptDeployed().onSuccess { scriptDeployed = it }
+                repository.isScriptRunning().onSuccess { scriptRunning = it }
             }
         }
     }
@@ -193,51 +195,6 @@ fun DataCenterScreen(
                 }
             }
 
-            // ── 脚本部署状态 ──
-            if (scriptDeployed != null) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (scriptDeployed == true) Slate50 else Amber50
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                if (scriptDeployed == true) Icons.Default.CheckCircle else Icons.Default.Info,
-                                null,
-                                tint = if (scriptDeployed == true) Green500 else Amber500,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                if (scriptDeployed == true) "统计脚本已部署到 C3"
-                                else "统计脚本尚未部署到 C3",
-                                fontWeight = FontWeight.SemiBold, color = Slate700, fontSize = 14.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            if (scriptDeployed == true)
-                                "脚本位于 C3 /data/openpilot/c3_scripts/，增量结果缓存于 /data/appdata/"
-                            else "首次使用需部署脚本（同步时也会自动部署）。",
-                            fontSize = 12.sp, color = Slate500
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Button(
-                            onClick = { deploy() },
-                            enabled = !busy,
-                            colors = ButtonDefaults.buttonColors(containerColor = Teal500)
-                        ) {
-                            Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (scriptDeployed == true) "重新部署" else "部署统计脚本")
-                        }
-                    }
-                }
-            }
-
             SummaryPanel(
                 stats = stats,
                 startDate = startDate,
@@ -263,6 +220,74 @@ fun DataCenterScreen(
                 onImport = { importLauncher.launch("application/json") }
             )
             EfficiencyPanel(stats = stats)
+
+            // ── 脚本部署状态（右下角） ──
+            if (scriptDeployed != null) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (scriptDeployed == true) Slate50 else Amber50
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        // 第一行：部署状态 + 运行状态
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (scriptDeployed == true) Icons.Default.CheckCircle else Icons.Default.Info,
+                                null,
+                                tint = if (scriptDeployed == true) Green500 else Amber500,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (scriptDeployed == true) "统计脚本已部署"
+                                else "统计脚本未部署",
+                                fontWeight = FontWeight.SemiBold, color = Slate700, fontSize = 13.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            // 运行状态指示灯
+                            if (scriptDeployed == true && scriptRunning) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Green50
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Green500)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("运行中", fontSize = 11.sp, color = Green500, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            if (scriptDeployed == true)
+                                "C3: /data/openpilot/c3_scripts/\n缓存: /data/appdata/"
+                            else "同步时会自动部署到 C3",
+                            fontSize = 11.sp, color = Slate400, lineHeight = 16.sp
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = { deploy() },
+                            enabled = !busy,
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal500),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (scriptDeployed == true) "重新部署" else "部署统计脚本")
+                        }
+                    }
+                }
+            }
         }
     }
 

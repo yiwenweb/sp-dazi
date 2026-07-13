@@ -81,6 +81,12 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
             .map { it.trim() == "1" }
     }
 
+    /** 检查脚本是否正在 C3 上运行 */
+    suspend fun isScriptRunning(): Result<Boolean> {
+        return sshManager.executeCommand("pgrep -f calc_drive_stats | wc -l")
+            .map { (it.trim().toIntOrNull() ?: 0) > 0 }
+    }
+
     // ── 数据查询 ──────────────────────────────────────────────
 
     suspend fun getAll(): List<DriveStats> = withContext(Dispatchers.IO) {
