@@ -60,6 +60,18 @@ class RecorderRepository(
                 downloadOverlay(segmentId, remotePath)
             }
         }
+        // 尝试下载，失败则自动预处理后重试
+        val firstAttempt = downloadOverlay(segmentId, remotePath)
+        if (firstAttempt.isSuccess) return firstAttempt
+
+        Log.i(TAG, "overlay.json 不存在，自动触发预处理: $segmentId")
+        val preprocessResult = preprocessSegment(segmentId, remotePath)
+        if (preprocessResult.isFailure) {
+            return Result.failure(Exception(
+                "预处理失败: ${preprocessResult.exceptionOrNull()?.message}，原错误: ${firstAttempt.exceptionOrNull()?.message}"
+            ))
+        }
+        // 预处理完成，重试下载
         return downloadOverlay(segmentId, remotePath)
     }
 
