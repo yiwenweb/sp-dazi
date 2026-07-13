@@ -3,7 +3,9 @@ package com.sunnypilot.toolbox.ui.screens
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.view.ViewGroup
+import android.util.Log
 import android.webkit.WebResourceRequest
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -240,6 +242,15 @@ private fun VideoCard(
                                     if (request?.isForMainFrame == true) {
                                         onError("无法连接摄像头流 ($c3Ip:5001)")
                                     }
+                                }
+                            }
+                            // 接收 WebView 内 console.log，输出到 logcat 用于诊断 WebRTC 协商问题
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                    consoleMessage?.let {
+                                        Log.d("WebRTC_WebView", "${it.message()} (line:${it.lineNumber()})")
+                                    }
+                                    return true
                                 }
                             }
                         }

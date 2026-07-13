@@ -379,12 +379,13 @@ function clearError(){ var e=document.getElementById('err'); if(e) e.remove(); }
 
 function waitIceGathering(pc){
   return new Promise(function(resolve){
-    if(pc.iceGatheringState==='complete'){ resolve(); return; }
+    if(pc.iceGatheringState==='complete'){ console.log('[WRTC] ICE gathering complete (immediate)'); resolve(); return; }
     var done=false;
-    function finish(){ if(done) return; done=true; pc.removeEventListener('icegatheringstatechange',check); resolve(); }
-    function check(){ if(pc.iceGatheringState==='complete') finish(); }
+    function finish(reason){ if(done) return; done=true; pc.removeEventListener('icegatheringstatechange',check); console.log('[WRTC] ICE gathering done: '+reason+', state='+pc.iceGatheringState+', candidates='+pc.localDescription.sdp.split('a=candidate:').length-1); resolve(); }
+    function check(){ if(pc.iceGatheringState==='complete') finish('complete'); }
     pc.addEventListener('icegatheringstatechange', check);
-    setTimeout(finish, 2000);
+    // 超时从 2s → 5s，给老设备更多时间收集 candidate
+    setTimeout(function(){ finish('timeout-5s'); }, 5000);
   });
 }
 
@@ -394,8 +395,13 @@ async function connect(){
   clearError();
   ld.style.display=''; info.style.display='none';
   setStatus('正在协商 WebRTC 连接...');
+  console.log('[WRTC] connect() start, host='+host+' port='+port+' camera='+camera);
   try{
-    pc=new RTCPeerConnection({sdpSemantics:'unified-plan'});
+    // 不强制 unified-plan，老 WebView (Android 7.x Chromium 51-55) 对 unified-plan 支持不完整
+    // 让浏览器自选 sdpSemantics，老版本回退 plan-b，新版本用 unified-plan
+    var pcConfig = {};
+    try { pcConfig = {sdpSemantics:'unified-plan'}; } catch(e){ console.log('[WRTC] unified-plan not supported, using default'); }
+    pc=new RTCPeerConnection(pcConfig);
     pc.addTransceiver('video', {direction:'recvonly'});
 
     pc.addEventListener('track', function(evt){
@@ -435,8 +441,11 @@ async function connect(){
     dc.onmessage = onMessage;
 
     var offer=await pc.createOffer();
+    console.log('[WRTC] offer created, type='+offer.type);
     await pc.setLocalDescription(offer);
+    console.log('[WRTC] localDescription set, waiting for ICE...');
     await waitIceGathering(pc);
+    console.log('[WRTC] sending offer to '+streamUrl);
 
     var resp=await fetch(streamUrl,{
       method:'POST',
@@ -449,19 +458,33 @@ async function connect(){
       })
     });
     if(!resp.ok) throw new Error('HTTP '+resp.status);
+    console.log('[WRTC] got response, status='+resp.status);
     var answer=await resp.json();
+    console.log('[WRTC] answer type='+answer.type+', sdp length='+(answer.sdp?answer.sdp.length:0));
     await pc.setRemoteDescription(answer);
+    console.log('[WRTC] remoteDescription set, waiting for connection...');
   }catch(e){
+    console.log('[WRTC] error: '+e.message);
     scheduleRetry('无法连接摄像头流: '+e.message+'\\n（确认车辆已启动且流开关已开启）');
   }
 }
 
+// 总超时保护：15秒内未连上则强制重试
+var connectTimeout = setTimeout(function(){
+  if(pc && pc.connectionState !== 'connected'){
+    console.log('[WRTC] total timeout 15s, connectionState='+pc.connectionState+', forcing retry');
+    scheduleRetry('连接超时，正在重试...');
+  }
+}, 15000);
+
 function scheduleRetry(msg){
   showError(msg); cleanup();
+  if(connectTimeout) clearTimeout(connectTimeout);
   if(retryTimer) clearTimeout(retryTimer);
   retryTimer=setTimeout(connect, 3000);
 }
 function cleanup(){
+  if(connectTimeout) clearTimeout(connectTimeout);
   if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
   if(drawTimer){ clearInterval(drawTimer); drawTimer=null; }
   if(dc){ try{ dc.close(); }catch(e){} dc=null; }
