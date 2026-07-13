@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +41,7 @@ import com.sunnypilot.toolbox.model.AggregatedStats
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.util.Log
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -60,6 +63,10 @@ fun DataCenterScreen(
     // 数据概况弹窗（扳手第一步—看数据，确定后再启动获取）
     var showSyncOverview by remember { mutableStateOf(false) }
 
+    // 脚本部署状态
+    var scriptDeployed by remember { mutableStateOf<Boolean?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
     // 观察 SyncStateHolder 的后台同步状态（进程级，离开页面也不会停）
     val syncStatus by SyncStateHolder.status.collectAsState()
     val syncStageText by SyncStateHolder.stageText.collectAsState()
@@ -70,6 +77,26 @@ fun DataCenterScreen(
         scope.launch {
             val data = repository.aggregate(startDate, endDate)
             stats = data
+            if (sshManager.isConnected()) {
+                repository.isScriptDeployed().onSuccess { scriptDeployed = it }
+            }
+        }
+    }
+
+    // 部署统计脚本
+    fun deploy() {
+        scope.launch {
+            busy = true
+            repository.deployScriptToC3().fold(
+                onSuccess = {
+                    scriptDeployed = true
+                    Toast.makeText(context, "统计脚本已部署到 C3", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { e ->
+                    Toast.makeText(context, "部署失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            )
+            busy = false
         }
     }
 
@@ -161,6 +188,51 @@ fun DataCenterScreen(
                                 fontSize = 12.sp,
                                 color = Slate400
                             )
+                        }
+                    }
+                }
+            }
+
+            // ── 脚本部署状态 ──
+            if (scriptDeployed != null) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (scriptDeployed == true) Slate50 else Amber50
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (scriptDeployed == true) Icons.Default.CheckCircle else Icons.Default.Info,
+                                null,
+                                tint = if (scriptDeployed == true) Green500 else Amber500,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (scriptDeployed == true) "统计脚本已部署到 C3"
+                                else "统计脚本尚未部署到 C3",
+                                fontWeight = FontWeight.SemiBold, color = Slate700, fontSize = 14.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (scriptDeployed == true)
+                                "脚本位于 C3 /data/openpilot/c3_scripts/，增量结果缓存于 /data/appdata/"
+                            else "首次使用需部署脚本（同步时也会自动部署）。",
+                            fontSize = 12.sp, color = Slate500
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = { deploy() },
+                            enabled = !busy,
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                        ) {
+                            Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (scriptDeployed == true) "重新部署" else "部署统计脚本")
                         }
                     }
                 }

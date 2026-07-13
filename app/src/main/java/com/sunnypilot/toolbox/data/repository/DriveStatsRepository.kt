@@ -2,6 +2,7 @@ package com.sunnypilot.toolbox.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.core.content.FileProvider
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.db.AppDatabase
@@ -21,20 +22,32 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 驾驶统计数据 Repository。
+ * 驾驶统计数据 Repository (v3)。
  *
- * 数据来源：通过 SSH 调用 C3 端的 calc_drive_stats.py，
- * 从 qlog 中解析真实行驶数据并写入本地 Room 数据库。
+ * 数据来源：通过 SSH 调用 C3 端的 calc_drive_stats.py（从 assets 自动部署），
+ * 从 qlog 中解析真实行驶数据：
+ *   - 脚本存于 /data/openpilot/c3_scripts/calc_drive_stats.py
+ *   - 增量标记：/data/appdata/last_sync.txt（C3 端记录上次扫描位置）
+ *   - 结果缓存：/data/appdata/drive_stats.json（C3 端累积数据）
+ *   - App 本地：Room 数据库增量合并
  */
-class DriveStatsRepository(context: Context, private val sshManager: SshManager) {
+class DriveStatsRepository(private val context: Context, private val sshManager: SshManager) {
     private val dao: DriveStatsDao = AppDatabase.getDatabase(context).driveStatsDao()
 
-    /**
-     * C3 端统计脚本路径（也复制到 /data/openpilot/c3_scripts/ 下同步用）。
-     */
     companion object {
+        private const val TAG = "DriveStatsRepository"
+
+        /** C3 端脚本相对路径（相对于 /data/openpilot/） */
         private const val C3_SCRIPT = "c3_scripts/calc_drive_stats.py"
+
+        /** C3 端脚本绝对路径 */
+        const val REMOTE_SCRIPT = "/data/openpilot/c3_scripts/calc_drive_stats.py"
+
+        /** C3 端应用数据目录 */
+        const val APP_DATA_DIR = "/data/appdata"
+
         private const val C3_REALDATA = "/data/media/0/realdata"
+        private const val C3_OPENPILOT = "/data/openpilot"
 
         fun dateRange(days: Int): Pair<String, String> {
             val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -47,8 +60,28 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         }
     }
 
+    // ── 脚本部署 ──────────────────────────────────────────────
 
+    /** 部署 calc_drive_stats.py 到 C3（从 assets 读取内容） */
+    suspend fun deployScript(): Result<Unit> {
+        return try {
+            val content = context.assets.open("calc_drive_stats.py")
+                .bufferedReader().use { it.readText() }
+            // 确保目录存在
+            sshManager.executeCommand("mkdir -p /data/openpilot/c3_scripts /data/appdata")
+            sshManager.writeTextFile(REMOTE_SCRIPT, content).map { }
+        } catch (e: Exception) {
+            Result.failure(Exception("读取脚本失败: ${e.message}"))
+        }
+    }
 
+    /** 检查脚本是否已部署到 C3 */
+    suspend fun isScriptDeployed(): Result<Boolean> {
+        return sshManager.executeCommand("[ -f $REMOTE_SCRIPT ] && echo 1 || echo 0")
+            .map { it.trim() == "1" }
+    }
+
+    // ── 数据查询 ──────────────────────────────────────────────
 
     suspend fun getAll(): List<DriveStats> = withContext(Dispatchers.IO) {
         dao.getAll()
@@ -140,23 +173,34 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         return score.coerceIn(0, 100)
     }
 
+    // ── 同步（v3：自动部署 + 增量 + 合并） ────────────────────
+
+    /**
+     * 从 C3 增量同步驾驶统计数据。
+     *
+     * 流程：
+     *   1. 检查脚本是否存在，不存在则自动从 assets 部署
+     *   2. 以 --incremental 模式执行，C3 端自动跳过已处理的 segment
+     *   3. 解析 JSON → 合并写入本地 Room（REPLACE 策略，不丢失历史）
+     *   4. 结果同时缓存到 C3 /data/appdata/drive_stats.json
+     */
     suspend fun syncFromDevice(
-        onStage: (String, SyncStatus) -> Unit = { _, _ -> }
+        onStage: (String, SyncStatus) -> Unit = { _, _ -> },
+        forceFull: Boolean = false
     ): Result<Int> = withContext(Dispatchers.IO) {
         if (!sshManager.isConnected()) {
             return@withContext Result.failure(IllegalStateException("未连接 C3"))
         }
 
-        // Step 1: 确保脚本存在
-        onStage("正在连接 C3…", SyncStatus.CONNECTING)
-        val checkScript = sshManager.executeCommand(
-            "test -f /data/openpilot/${C3_SCRIPT} && echo 'OK' || echo 'MISSING'"
-        ).getOrElse { return@withContext Result.failure(Exception("SSH 通信失败")) }
-
-        if (checkScript.trim() == "MISSING") {
-            return@withContext Result.failure(
-                IllegalStateException("C3 上缺少 ${C3_SCRIPT}，请先部署脚本到 /data/openpilot/c3_scripts/")
-            )
+        // Step 1: 确保脚本存在 → 自动部署
+        onStage("正在检查脚本…", SyncStatus.CONNECTING)
+        val deployed = isScriptDeployed().getOrDefault(false)
+        if (!deployed) {
+            onStage("正在部署统计脚本到 C3…", SyncStatus.CONNECTING)
+            deployScript().getOrElse {
+                return@withContext Result.failure(Exception("脚本部署失败: ${it.message}"))
+            }
+            Log.i(TAG, "calc_drive_stats.py 已自动部署到 C3")
         }
 
         // Step 2: 检查是否有 segment 数据
@@ -169,10 +213,11 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             return@withContext Result.success(0)
         }
 
-        // Step 3: 执行统计脚本
+        // Step 3: 执行统计脚本（增量模式）
+        val flag = if (forceFull) "--full" else "--incremental"
         onStage("正在远程计算统计（约 30~60 秒）…", SyncStatus.COMPUTING)
         val rawOutput = sshManager.executeCommand(
-            "/usr/local/venv/bin/python /data/openpilot/${C3_SCRIPT}"
+            "cd $C3_OPENPILOT && /usr/local/venv/bin/python $REMOTE_SCRIPT $flag"
         ).getOrElse {
             return@withContext Result.failure(Exception("脚本执行失败: ${it.message}"))
         }
@@ -191,7 +236,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             )
         }
 
-        // Step 5: 解析 JSON → 保存到本地
+        // Step 5: 解析 JSON → 合并保存到本地（不擦除历史数据）
         onStage("正在保存到本地数据库…", SyncStatus.SAVING)
         runCatching {
             val array = JSONArray(jsonStr)
@@ -205,9 +250,10 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
                 stats.add(parseJsonToDriveStats(obj))
             }
 
-            dao.clear()
+            // 增量合并：REPLACE 策略自动更新已存在的日期，保留历史上传日期的数据
             dao.insertAll(stats)
 
+            Log.i(TAG, "同步完成：${stats.size} 天数据已合并到本地")
             return@withContext Result.success(stats.size)
         }.onFailure { e ->
             return@withContext Result.failure(
@@ -215,6 +261,13 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
             )
         }
     }
+
+    // ── 仅部署脚本（供 UI 手动触发） ──────────────────────────
+
+    /** 部署脚本并返回是否成功（与上面 deployScript 相同，命名更语义化） */
+    suspend fun deployScriptToC3(): Result<Unit> = deployScript()
+
+    // ── JSON 解析 ─────────────────────────────────────────────
 
     private fun parseJsonToDriveStats(obj: JSONObject): DriveStats {
         return DriveStats(
@@ -239,7 +292,7 @@ class DriveStatsRepository(context: Context, private val sshManager: SshManager)
         )
     }
 
-
+    // ── 导入 / 导出 ──────────────────────────────────────────
 
     suspend fun exportToJson(context: Context, start: String, end: String): Uri = withContext(Dispatchers.IO) {
         val list = dao.getBetween(start, end)
