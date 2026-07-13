@@ -217,15 +217,34 @@ fun DebugScreen(
         }
 
         // ── 脚本部署状态 ──
-        if (scriptDeployed == false) {
+        if (scriptDeployed != null) {
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Amber50)
+                colors = CardDefaults.cardColors(
+                    containerColor = if (scriptDeployed == true) Slate50 else Amber50
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("守护脚本尚未部署到 C3", fontWeight = FontWeight.SemiBold, color = Slate700, fontSize = 14.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (scriptDeployed == true) Icons.Default.CheckCircle else Icons.Default.Info,
+                            null,
+                            tint = if (scriptDeployed == true) Green500 else Amber500,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (scriptDeployed == true) "守护脚本已部署到 C3" else "守护脚本尚未部署到 C3",
+                            fontWeight = FontWeight.SemiBold, color = Slate700, fontSize = 14.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
-                    Text("首次使用需部署脚本(或直接开启监测会自动部署)。", fontSize = 12.sp, color = Slate500)
+                    Text(
+                        if (scriptDeployed == true) "App 更新后脚本可能有变化, 可重新上传覆盖。"
+                        else "首次使用需部署脚本(或直接开启监测会自动部署)。",
+                        fontSize = 12.sp, color = Slate500
+                    )
                     Spacer(Modifier.height(10.dp))
                     Button(
                         onClick = { deploy() },
@@ -234,7 +253,7 @@ fun DebugScreen(
                     ) {
                         Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("部署守护脚本")
+                        Text(if (scriptDeployed == true) "重新部署" else "部署守护脚本")
                     }
                 }
             }
