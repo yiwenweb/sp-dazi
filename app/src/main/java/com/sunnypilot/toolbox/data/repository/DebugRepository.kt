@@ -71,7 +71,8 @@ class DebugRepository(
             append("mkdir -p $EVENTS_DIR && touch $ENABLED_FLAG && ")
             // 已在运行则不重复启动
             append("if pgrep -f byd_debug_watchdog > /dev/null; then echo already; else ")
-            append("cd $OPENPILOT && source /usr/local/venv/bin/activate 2>/dev/null; ")
+            // 用 . 而非 source (POSIX兼容), && 保证 activate 成功后才启动 python
+            append("cd $OPENPILOT && . /usr/local/venv/bin/activate && ")
             append("export PYTHONPATH=$OPENPILOT && ")
             append("nohup python $REMOTE_SCRIPT > $LOG_FILE 2>&1 & echo started; fi")
         }
