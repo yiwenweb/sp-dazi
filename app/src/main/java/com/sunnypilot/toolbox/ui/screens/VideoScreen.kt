@@ -141,7 +141,7 @@ fun VideoScreen(
                     break
                 }
             }
-            delay(150) // ~6 fps, 匹配 C3 端 FRAME_INTERVAL, 降低双方 CPU
+            delay(100) // ~10fps, 匹配 C3 端 FRAME_INTERVAL, 画面流畅
         }
     }
 

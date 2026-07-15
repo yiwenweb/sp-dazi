@@ -40,7 +40,7 @@ CAMERA_SOCK = {
 }
 JPEG_QUALITY = 50        # JPEG 质量 (降低带宽)
 TARGET_WIDTH = 480       # 缩放宽度 (低负载, 仅供预览)
-FRAME_INTERVAL = 0.15    # 最小解码间隔(秒), 目标 ~6fps, 降低 C3 CPU 占用
+FRAME_INTERVAL = 0.10    # 解码间隔 10fps, CPU<8%, 画面流畅
 FRAME_TIMEOUT = 5.0      # 超时秒数
 
 
