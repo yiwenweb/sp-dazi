@@ -602,6 +602,107 @@ fun CustomizeScreen(
                         }
                     }
                 }
+
+                // ===== 整体备份/恢复 =====
+                Spacer(Modifier.height(4.dp))
+                var hasBackup by remember { mutableStateOf<Boolean?>(null) }
+
+                LaunchedEffect(Unit) {
+                    repository.hasSoundBackup().onSuccess { hasBackup = it }
+                }
+
+                Surface(
+                    color = Teal50,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            tint = Teal500,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            when {
+                                hasBackup == true -> "已有声音备份，可随时恢复"
+                                hasBackup == false -> "尚未备份声音文件，建议在修改前先备份"
+                                else -> "正在检查备份状态..."
+                            },
+                            fontSize = 12.sp,
+                            color = Slate600,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                repository.backupAllSounds().fold(
+                                    onSuccess = { msg ->
+                                        statusMessage = msg
+                                        showStatus = true
+                                        hasBackup = true
+                                        showToast(msg)
+                                    },
+                                    onFailure = { e ->
+                                        showToast("备份失败：${e.message}")
+                                    }
+                                )
+                                isLoading = false
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = !isLoading,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Teal500)
+                    ) {
+                        Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("备份全部声音", fontSize = 14.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                repository.restoreAllSounds().fold(
+                                    onSuccess = { msg ->
+                                        statusMessage = msg
+                                        showStatus = true
+                                        showToast(msg)
+                                        repository.getCustomSoundStatus().onSuccess { customSoundStatus = it }
+                                    },
+                                    onFailure = { e ->
+                                        showToast("恢复失败：${e.message}")
+                                    }
+                                )
+                                isLoading = false
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = !isLoading && hasBackup == true,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber500)
+                    ) {
+                        Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("恢复全部声音", fontSize = 14.sp)
+                    }
+                }
             }
         }
 

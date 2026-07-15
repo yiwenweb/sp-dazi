@@ -18,6 +18,7 @@ class CustomizeRepository(
         const val SPINNER_IMAGE_PATH = "/data/openpilot/sunnypilot/selfdrive/assets/images/spinner_sunnypilot.png"
         const val SPINNER_BACKUP_PATH = "/data/openpilot/sunnypilot/selfdrive/assets/images/spinner_sunnypilot.png.bak"
         const val SOUNDS_DIR = "/data/openpilot/selfdrive/assets/sounds"
+        const val SOUNDS_BACKUP_DIR = "/data/openpilot/selfdrive/assets/sounds_backup"
         const val VOLUME_PARAM_PATH = "/data/params/d/SoundVolume"
 
         // 声音文件列表
@@ -215,6 +216,53 @@ class CustomizeRepository(
             if (output.trim() == "OK") "音量已更新为 ${(clamped * 100).toInt()}%"
             else "设置结果: $output"
         }
+    }
+
+    /**
+     * 备份所有声音文件到备份目录
+     * 将整个 SOUNDS_DIR 复制到 SOUNDS_BACKUP_DIR（.bak 文件除外）
+     */
+    suspend fun backupAllSounds(): Result<String> {
+        return sshManager.executeCommand(
+            "mkdir -p '$SOUNDS_BACKUP_DIR' && " +
+            "cp '$SOUNDS_DIR'/*.wav '$SOUNDS_BACKUP_DIR/' 2>/dev/null; " +
+            "count=\$(ls '$SOUNDS_BACKUP_DIR'/*.wav 2>/dev/null | wc -l); " +
+            "echo \"BACKUP_OK:\$count\""
+        ).mapCatching { output ->
+            val trimmed = output.trim()
+            if (trimmed.startsWith("BACKUP_OK:")) {
+                val count = trimmed.removePrefix("BACKUP_OK:")
+                "已备份 $count 个声音文件到 $SOUNDS_BACKUP_DIR"
+            } else {
+                "备份结果: $trimmed"
+            }
+        }
+    }
+
+    /**
+     * 从备份目录恢复所有声音文件
+     */
+    suspend fun restoreAllSounds(): Result<String> {
+        return sshManager.executeCommand(
+            "if [ -d '$SOUNDS_BACKUP_DIR' ] && [ \"\$(ls '$SOUNDS_BACKUP_DIR'/*.wav 2>/dev/null | wc -l)\" -gt 0 ]; then " +
+            "cp '$SOUNDS_BACKUP_DIR'/*.wav '$SOUNDS_DIR/' && echo 'RESTORE_OK'; " +
+            "else echo 'RESTORE_NO_BACKUP'; fi"
+        ).mapCatching { output ->
+            when {
+                output.trim() == "RESTORE_OK" -> "已从备份恢复所有声音文件，重启 openpilot 后生效"
+                output.trim() == "RESTORE_NO_BACKUP" -> "未找到声音备份，请先执行备份"
+                else -> "恢复结果: $output"
+            }
+        }
+    }
+
+    /**
+     * 检查声音备份是否存在
+     */
+    suspend fun hasSoundBackup(): Result<Boolean> {
+        return sshManager.executeCommand(
+            "[ -d '$SOUNDS_BACKUP_DIR' ] && [ \"\$(ls '$SOUNDS_BACKUP_DIR'/*.wav 2>/dev/null | wc -l)\" -gt 0 ] && echo 'true' || echo 'false'"
+        ).mapCatching { it.trim() == "true" }
     }
 
     /**
