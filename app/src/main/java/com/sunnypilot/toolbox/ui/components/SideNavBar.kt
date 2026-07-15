@@ -35,6 +35,7 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     Debug("故障抓包", Icons.Default.BugReport, true),
     Radar("雷达导航", Icons.Default.Radar, true),
     Customize("个性化", Icons.Default.Palette, true),
+    Cast("手机投屏", Icons.Default.Cast, true),
     Shortcuts("一键下发", Icons.Default.Send),
     Share("分享中心", Icons.Default.Share),
     Backup("备份", Icons.Default.CloudUpload),
