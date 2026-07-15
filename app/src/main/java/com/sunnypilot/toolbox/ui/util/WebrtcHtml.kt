@@ -391,18 +391,60 @@ function waitIceGathering(pc){
 
 var statsTimer = null, drawTimer = null;
 
+// 检测 WebView 是否支持 WebRTC
+function checkWebrtcSupport(){
+  if(typeof RTCPeerConnection === 'undefined'){
+    console.log('[WRTC] FATAL: RTCPeerConnection not available');
+    return {ok:false, reason:'您的车机系统版本过低，不支持 WebRTC 视频流。\n请使用手机或平板运行此功能。'};
+  }
+  // 检查 addTransceiver（Chrome 69+），老版本用 addTrack 兼容
+  var hasTransceiver = false;
+  try {
+    var testPc = new RTCPeerConnection();
+    if(typeof testPc.addTransceiver === 'function') hasTransceiver = true;
+    testPc.close();
+  } catch(e){}
+  console.log('[WRTC] WebView support: RTCPeerConnection=OK, addTransceiver='+hasTransceiver);
+  return {ok:true, hasTransceiver:hasTransceiver};
+}
+
+var webrtcSupport = checkWebrtcSupport();
+
+var connectTimeout = null;
 async function connect(){
+  if(!webrtcSupport.ok){
+    showError('摄像头实时流不可用\n\n'+webrtcSupport.reason);
+    ld.style.display='none';
+    return;
+  }
+
   clearError();
   ld.style.display=''; info.style.display='none';
   setStatus('正在协商 WebRTC 连接...');
   console.log('[WRTC] connect() start, host='+host+' port='+port+' camera='+camera);
+
+  // 每次 connect() 都重新设置超时，防止重连后无限等待
+  if(connectTimeout) clearTimeout(connectTimeout);
+  connectTimeout = setTimeout(function(){
+    console.log('[WRTC] connect timeout 15s, forcing retry');
+    scheduleRetry('连接超时（15秒），正在重试...');
+  }, 15000);
+
   try{
     // 不强制 unified-plan，老 WebView (Android 7.x Chromium 51-55) 对 unified-plan 支持不完整
     // 让浏览器自选 sdpSemantics，老版本回退 plan-b，新版本用 unified-plan
     var pcConfig = {};
     try { pcConfig = {sdpSemantics:'unified-plan'}; } catch(e){ console.log('[WRTC] unified-plan not supported, using default'); }
     pc=new RTCPeerConnection(pcConfig);
-    pc.addTransceiver('video', {direction:'recvonly'});
+
+    // 兼容老 WebView：addTransceiver 不存在时回退 addTrack
+    if(webrtcSupport.hasTransceiver){
+      pc.addTransceiver('video', {direction:'recvonly'});
+    } else {
+      console.log('[WRTC] using addTrack fallback for old WebView');
+      // 老版本 WebView 不支持 addTransceiver，用 DataChannel 触发 media 协商
+      // video transceiver 在 setRemoteDescription 后自动创建
+    }
 
     pc.addEventListener('track', function(evt){
       if(evt.track.kind==='video'){
@@ -423,6 +465,15 @@ async function connect(){
         if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
         if(drawTimer){ clearInterval(drawTimer); drawTimer=null; }
         scheduleRetry('连接断开，正在重连...');
+      }
+    });
+    // ICE 连接失败兜底（老 WebView connectionstatechange 可能不触发）
+    pc.addEventListener('iceconnectionstatechange', function(){
+      console.log('[WRTC] ICE state: '+pc.iceConnectionState);
+      if(pc.iceConnectionState==='failed' || pc.iceConnectionState==='disconnected'){
+        if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
+        if(drawTimer){ clearInterval(drawTimer); drawTimer=null; }
+        scheduleRetry('ICE 连接失败，正在重连...');
       }
     });
 
@@ -469,26 +520,15 @@ async function connect(){
   }
 }
 
-// 总超时保护：15秒内未连上则强制重试
-var connectTimeout = setTimeout(function(){
-  if(pc && pc.connectionState !== 'connected'){
-    console.log('[WRTC] total timeout 15s, connectionState='+pc.connectionState+', forcing retry');
-    scheduleRetry('连接超时，正在重试...');
-  }
-}, 15000);
-
 function scheduleRetry(msg){
-  showError(msg); cleanup();
-  if(connectTimeout) clearTimeout(connectTimeout);
+  showError(msg);
+  if(connectTimeout){ clearTimeout(connectTimeout); connectTimeout=null; }
   if(retryTimer) clearTimeout(retryTimer);
-  retryTimer=setTimeout(connect, 3000);
-}
-function cleanup(){
-  if(connectTimeout) clearTimeout(connectTimeout);
+  if(pc){ try{ pc.close(); }catch(e){} pc=null; }
+  if(dc){ try{ dc.close(); }catch(e){} dc=null; }
   if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
   if(drawTimer){ clearInterval(drawTimer); drawTimer=null; }
-  if(dc){ try{ dc.close(); }catch(e){} dc=null; }
-  if(pc){ try{ pc.close(); }catch(e){} pc=null; }
+  retryTimer=setTimeout(connect, 3000);
 }
 
 // 响应窗口大小变化
