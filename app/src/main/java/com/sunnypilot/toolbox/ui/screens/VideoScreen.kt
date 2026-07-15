@@ -1,17 +1,15 @@
 package com.sunnypilot.toolbox.ui.screens
 
-import android.annotation.SuppressLint
 import android.graphics.Bitmap
-import android.view.ViewGroup
+import android.graphics.BitmapFactory
 import android.util.Log
-import android.webkit.WebResourceRequest
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,65 +17,131 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.repository.VideoStreamRepository
 import com.sunnypilot.toolbox.ui.theme.*
-import com.sunnypilot.toolbox.ui.util.WebrtcHtml
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * 摄像头实时流 — 通过 WebRTC（端口 5001）观看 C3 摄像头画面。
+ * 摄像头实时流 — 通过 MJPEG HTTP 轮询观看 C3 摄像头画面。
  *
- * 复用 openpilot 官方 stream_encoderd 硬件 H264 编码 + webrtcd，
- * 几乎不占 CPU/GPU（骁龙 845 Venus 硬编），高帧率高画质。
- * 仅 onroad（车辆启动）时可用。
+ * 原理: C3 端 mjpeg_stream.py 订阅 stream_encoderd 的 H264 帧,
+ * 解码为 JPEG 通过 HTTP /frame 提供。Android 端原生 Bitmap 渲染。
  *
- * 三个摄像头：
- *   road     — 正前方主摄像头（ACC/车道保持的视线）
- *   wideRoad — 广角，两侧变道/盲区视角
- *   driver   — 车内驾驶员视角（疲劳/分心监测）
+ * 优势: 绕过 WebRTC + WebView, 低延迟, 高兼容, 车机也能流畅运行。
  */
 enum class CameraType(val key: String, val title: String, val desc: String) {
     ROAD("road", "主视角", "正前方，ACC/车道保持视线"),
     WIDE("wideRoad", "广角", "两侧变道/盲区视角"),
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun VideoScreen(
     sshManager: SshManager,
     modifier: Modifier = Modifier
 ) {
-    val videoRepo = remember { VideoStreamRepository(sshManager) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val videoRepo = remember { VideoStreamRepository(context, sshManager) }
     val c3Ip = remember { sshManager.connectedHost }
 
     var camera by remember { mutableStateOf(CameraType.ROAD) }
     var error by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isStarting by remember { mutableStateOf(true) }
+    var frameBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var fps by remember { mutableIntStateOf(0) }
     var retryKey by remember { mutableIntStateOf(0) }
 
-    // WebRTC 模式下 C3 端开关状态
-    var webrtcEnabling by remember { mutableStateOf(false) }
+    // 启动 C3 端 MJPEG 服务器
+    LaunchedEffect(camera, retryKey) {
+        if (c3Ip.isNullOrBlank()) {
+            error = "无法获取 C3 设备 IP 地址\n请确认已通过 SSH 连接到 C3"
+            isStarting = false
+            return@LaunchedEffect
+        }
 
-    // 进入页面自动开启 C3 端 WebrtcStreamEnabled；离开时关闭以省电
-    LaunchedEffect(Unit) {
-        webrtcEnabling = true
-        videoRepo.enableWebrtcStream()
-        webrtcEnabling = false
+        isStarting = true
+        error = null
+        frameBitmap = null
+
+        Log.d("VideoScreen", "Starting MJPEG stream, camera=$camera, ip=$c3Ip")
+        videoRepo.enableStream(camera.key).fold(
+            onSuccess = {
+                // 等待 MJPEG 服务器启动
+                delay(2000)
+                isStarting = false
+            },
+            onFailure = { e ->
+                error = "启动视频流失败: ${e.message}"
+                isStarting = false
+            }
+        )
     }
 
+    // 离开页面时关闭流
     DisposableEffect(Unit) {
         onDispose {
             CoroutineScope(Dispatchers.IO).launch {
-                runCatching { videoRepo.disableWebrtcStream() }
+                runCatching { videoRepo.disableStream() }
             }
+        }
+    }
+
+    // 轮询 JPEG 帧
+    LaunchedEffect(camera, retryKey, isStarting) {
+        if (c3Ip.isNullOrBlank() || isStarting || error != null) return@LaunchedEffect
+
+        val frameUrl = videoRepo.frameUrl(c3Ip)
+        Log.d("VideoScreen", "Starting frame poll: $frameUrl")
+
+        var frameCount = 0
+        var fpsTimer = System.currentTimeMillis()
+        var consecutiveErrors = 0
+
+        while (true) {
+            try {
+                val bitmap = withContext(Dispatchers.IO) {
+                    fetchJpegFrame(frameUrl)
+                }
+                if (bitmap != null) {
+                    frameBitmap = bitmap
+                    consecutiveErrors = 0
+                    frameCount++
+                    val now = System.currentTimeMillis()
+                    if (now - fpsTimer >= 1000) {
+                        fps = frameCount
+                        frameCount = 0
+                        fpsTimer = now
+                    }
+                } else {
+                    consecutiveErrors++
+                    if (consecutiveErrors > 10) {
+                        error = "无法获取视频帧\n（确认车辆已启动且摄像头流已开启）"
+                        break
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                consecutiveErrors++
+                if (consecutiveErrors > 15) {
+                    error = "视频流连接失败: ${e.message}"
+                    break
+                }
+            }
+            delay(120) // ~8 fps, 平衡流畅度和带宽
         }
     }
 
@@ -93,7 +157,8 @@ fun VideoScreen(
                 if (it != camera) {
                     camera = it
                     error = null
-                    isLoading = true
+                    isStarting = true
+                    frameBitmap = null
                     retryKey++
                 }
             }
@@ -120,20 +185,40 @@ fun VideoScreen(
                 }
 
                 else -> {
-                    val html = WebrtcHtml.build(host = c3Ip, port = 5001, camera = camera.key)
                     VideoCard(
-                        retryKey = retryKey,
+                        bitmap = frameBitmap,
                         camera = camera,
-                        html = html,
-                        isLoading = isLoading,
-                        webrtcEnabling = webrtcEnabling,
-                        c3Ip = c3Ip,
-                        onLoadingChange = { isLoading = it },
-                        onError = { error = it }
+                        isStarting = isStarting,
+                        fps = fps,
+                        c3Ip = c3Ip
                     )
                 }
             }
         }
+    }
+}
+
+/** 从 HTTP URL 获取 JPEG 帧 */
+private fun fetchJpegFrame(urlStr: String): Bitmap? {
+    var conn: HttpURLConnection? = null
+    return try {
+        val url = URL(urlStr)
+        conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 3000
+        conn.readTimeout = 3000
+        conn.requestMethod = "GET"
+        conn.useCaches = false
+
+        if (conn.responseCode != 200) return null
+
+        val bytes = conn.inputStream.use { it.readBytes() }
+        if (bytes.isEmpty()) return null
+
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (e: Exception) {
+        null
+    } finally {
+        conn?.disconnect()
     }
 }
 
@@ -155,8 +240,7 @@ private fun CameraSelector(
             Surface(
                 shape = RoundedCornerShape(9.dp),
                 color = if (isSel) Teal500 else Color.Transparent,
-                modifier = Modifier
-                    .weight(1f)
+                modifier = Modifier.weight(1f)
             ) {
                 Column(
                     modifier = Modifier
@@ -182,126 +266,89 @@ private fun CameraSelector(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun VideoCard(
-    retryKey: Int,
+    bitmap: Bitmap?,
     camera: CameraType,
-    html: String?,
-    isLoading: Boolean,
-    webrtcEnabling: Boolean,
-    c3Ip: String?,
-    onLoadingChange: (Boolean) -> Unit,
-    onError: (String) -> Unit
+    isStarting: Boolean,
+    fps: Int,
+    c3Ip: String
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color.White,
         shadowElevation = 4.dp,
-        modifier = Modifier
-            .fillMaxSize()
+        modifier = Modifier.fillMaxSize()
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1A1A2E)),
             contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(10.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1A1A2E))
-            ) {
-                AndroidView(
-                    factory = { context ->
-                        WebView(context).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.loadWithOverviewMode = true
-                            settings.useWideViewPort = true
-                            settings.mediaPlaybackRequiresUserGesture = false
-                            settings.builtInZoomControls = false
-                            settings.setSupportZoom(false)
-                            setBackgroundColor(0x00000000)
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
-                                    onLoadingChange(true)
-                                }
-                                override fun onPageFinished(view: WebView?, pageUrl: String?) {
-                                    onLoadingChange(false)
-                                }
-                                override fun onReceivedError(
-                                    view: WebView?,
-                                    request: WebResourceRequest?,
-                                    webError: android.webkit.WebResourceError?
-                                ) {
-                                    if (request?.isForMainFrame == true) {
-                                        onError("无法连接摄像头流 ($c3Ip:5001)")
-                                    }
-                                }
-                            }
-                            // 接收 WebView 内 console.log，输出到 logcat 用于诊断 WebRTC 协商问题
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                    consoleMessage?.let {
-                                        Log.d("WebRTC_WebView", "${it.message()} (line:${it.lineNumber()})")
-                                    }
-                                    return true
-                                }
-                            }
-                        }
-                    },
-                    update = { webView ->
-                        // 仅当 camera/retryKey 组合变化时才重新加载，避免重组时无限重载
-                        val loadKey = "$camera:$retryKey"
-                        if (webView.tag != loadKey) {
-                            webView.tag = loadKey
-                            html?.let {
-                                webView.loadDataWithBaseURL(
-                                    "http://$c3Ip:5001/",
-                                    it,
-                                    "text/html",
-                                    "UTF-8",
-                                    null
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "${camera.title} 实时画面",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
                 )
 
-                if (isLoading || webrtcEnabling) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF1A1A2E)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(
-                                color = Teal500,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text(
-                                when {
-                                    webrtcEnabling -> "正在开启 C3 摄像头流..."
-                                    else -> "正在连接 ${camera.title}..."
-                                },
-                                color = Slate400,
-                                fontSize = 13.sp
-                            )
-                            c3Ip?.let { ip ->
-                                Spacer(Modifier.height(4.dp))
-                                Text(ip, color = Slate600, fontSize = 12.sp)
-                            }
-                        }
-                    }
+                // FPS 指示器
+                Surface(
+                    color = Color(0xAA000000),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        "$fps fps",
+                        color = if (fps > 0) Green500 else Slate400,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+
+                // 摄像头标签
+                Surface(
+                    color = Color(0xAA000000),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        camera.title,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            if (isStarting || bitmap == null) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = Teal500,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        when {
+                            isStarting -> "正在启动 ${camera.title} 流..."
+                            else -> "正在连接 ${camera.title}..."
+                        },
+                        color = Slate400,
+                        fontSize = 13.sp
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(c3Ip, color = Slate600, fontSize = 12.sp)
                 }
             }
         }

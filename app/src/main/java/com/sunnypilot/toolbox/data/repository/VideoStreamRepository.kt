@@ -1,44 +1,92 @@
 package com.sunnypilot.toolbox.data.repository
 
+import android.content.Context
+import android.util.Log
 import com.sunnypilot.toolbox.data.SshManager
+import java.io.File
 
 /**
  * 视频流控制仓库
  *
- * 负责通过 SSH 控制 C3 端的 WebRTC 摄像头流开关。
+ * 负责:
+ * 1. 通过 SSH 开启 C3 端 stream_encoderd (WebrtcStreamEnabled 参数)
+ * 2. 部署并启动 MJPEG 流服务器 (mjpeg_stream.py)
+ * 3. Android 端通过 HTTP 轮询 /frame 获取 JPEG 帧, 原生渲染
  *
- * 说明：
- * - 直接写 /data/params/d/ 下的参数文件，避免依赖 C3 系统 Python（无 zmq 模块）。
- * - 同时写入 WebrtcStreamEnabled + IsDriverViewEnabled 两个参数：
- *   - WebrtcStreamEnabled：拉起 stream_encoderd + webrtcd 进程
- *   - IsDriverViewEnabled：拉起 camerad（摄像头驱动），offroad 也生效
- * - 两个参数均通过文件直接写入，绕过 params_pyx 白名单限制。
+ * 优势: 完全绕过 WebRTC + WebView, 用原生 Bitmap 显示, 低延迟、高兼容。
  */
 class VideoStreamRepository(
+    private val context: Context,
     private val sshManager: SshManager
 ) {
-    /** 开启 C3 端 WebRTC 摄像头流 */
-    suspend fun enableWebrtcStream(): Result<Unit> =
-        setWebrtcStream(true)
-
-    /** 关闭 C3 端 WebRTC 摄像头流（省电，停止硬件编码与网络传输） */
-    suspend fun disableWebrtcStream(): Result<Unit> =
-        setWebrtcStream(false)
-
-    private suspend fun setWebrtcStream(enabled: Boolean): Result<Unit> {
-        val valStr = if (enabled) "1" else "0"
-        // 直接写文件，不依赖 Python/zmq 环境
-        // WebrtcStreamEnabled: 控制 stream_encoderd + webrtcd
-        // IsDriverViewEnabled: 控制 camerad（摄像头驱动，offroad 也需开启）
-        val cmd = "echo -n '$valStr' > /data/params/d/WebrtcStreamEnabled && " +
-                  "echo -n '$valStr' > /data/params/d/IsDriverViewEnabled"
-        return sshManager.executeCommand(cmd).map { }
+    companion object {
+        private const val TAG = "VideoStreamRepository"
+        const val REMOTE_SCRIPT = "/data/mjpeg_stream.py"
+        const val MJPEG_PORT = 5002
+        private const val OPENPILOT = "/data/openpilot"
     }
 
-    /** 读取当前 WebRTC 流开关状态 */
-    suspend fun isWebrtcStreamEnabled(): Result<Boolean> {
-        return sshManager.executeCommand(
-            "cat /data/params/d/WebrtcStreamEnabled 2>/dev/null || echo 0"
-        ).map { it.trim() == "1" }
+    /** 开启 C3 端摄像头流 + 部署 MJPEG 服务器 */
+    suspend fun enableStream(camera: String = "road"): Result<Unit> {
+        // 1. 开启 stream_encoderd (产生 H264 帧)
+        val valStr = "1"
+        val enableCmd = "echo -n '$valStr' > /data/params/d/WebrtcStreamEnabled && " +
+                "echo -n '$valStr' > /data/params/d/IsDriverViewEnabled"
+        sshManager.executeCommand(enableCmd)
+
+        // 2. 部署 MJPEG 脚本
+        val deployed = isScriptDeployed().getOrDefault(false)
+        if (!deployed) {
+            deployScript().getOrElse { return Result.failure(it) }
+        }
+
+        // 3. 杀旧进程 + 启动新进程
+        val cameraArg = if (camera == "wideRoad") "wideRoad" else "road"
+        val startCmd = buildString {
+            append("pkill -f mjpeg_stream 2>/dev/null; ")
+            append("cd $OPENPILOT && . /usr/local/venv/bin/activate && ")
+            append("export PYTHONPATH=$OPENPILOT && ")
+            append("nohup python $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT ")
+            append("> /tmp/mjpeg_stream.log 2>&1 & echo started")
+        }
+        return sshManager.executeCommand(startCmd).map { }
     }
+
+    /** 关闭 C3 端摄像头流 + MJPEG 服务器 */
+    suspend fun disableStream(): Result<Unit> {
+        val disableCmd = "echo -n '0' > /data/params/d/WebrtcStreamEnabled && " +
+                "echo -n '0' > /data/params/d/IsDriverViewEnabled"
+        sshManager.executeCommand(disableCmd)
+        return sshManager.executeCommand("pkill -f mjpeg_stream 2>/dev/null; echo stopped").map { }
+    }
+
+    /** 部署 MJPEG 脚本到 C3 */
+    private suspend fun deployScript(): Result<Unit> {
+        return try {
+            val content = context.assets.open("mjpeg_stream.py")
+                .bufferedReader().use { it.readText() }
+            sshManager.writeTextFile(REMOTE_SCRIPT, content).map { }
+        } catch (e: Exception) {
+            Log.e(TAG, "deployScript failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** 脚本是否已部署 */
+    private suspend fun isScriptDeployed(): Result<Boolean> {
+        return sshManager.executeCommand("[ -f $REMOTE_SCRIPT ] && echo 1 || echo 0")
+            .map { it.trim() == "1" }
+    }
+
+    /** 检查 MJPEG 服务器是否在运行 */
+    suspend fun isStreamRunning(): Result<Boolean> {
+        return sshManager.executeCommand("pgrep -f mjpeg_stream | wc -l")
+            .map { (it.trim().toIntOrNull() ?: 0) > 0 }
+    }
+
+    /** 构造 MJPEG frame URL */
+    fun frameUrl(host: String): String = "http://$host:$MJPEG_PORT/frame"
+
+    /** 构造健康检查 URL */
+    fun healthUrl(host: String): String = "http://$host:$MJPEG_PORT/health"
 }
