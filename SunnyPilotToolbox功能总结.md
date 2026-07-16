@@ -35,13 +35,13 @@ SunnyPilot Android Toolbox 是一个 Android 平板/手机端应用，通过 SSH
 | **硬件管理** | `DeviceDashboardScreen.kt` | 同设备管家 + `Params().put_bool('OffroadMode', True)` / `remove('OffroadMode')`, `/data/community/crashes/error.log`, `sudo reboot`, `sudo poweroff` | 设备主控台、重启/关机、离线模式、错误日志 |
 | **终端** | `TerminalScreen.kt` + `QuickCommandsPanel.kt` | C3 交互式 Shell（bash） | 实时 SSH Shell、快捷命令、本地 Web 服务同步 |
 | **数据中台** | `DataCenterScreen.kt` + `DriveStatsRepository.kt` | 本地 Room 数据库（TODO：对接 C3 `/data/media/0/realdata/` qlog 解析） | 驾驶统计、安全评分、数据导入导出 |
-| **记录仪预览** | `RecorderScreen.kt` + `RecorderRepository.kt` | `/data/media/0/realdata/<segment>/qcamera.ts`, `overlay.json`, `qlog.zst/bz2/qlog`, `/data/openpilot/c3_scripts/preprocess_recorder.py` | 分段列表、下载视频与叠加层、预处理 |
+| **记录仪预览** | `RecorderScreen.kt` + `RecorderRepository.kt` | `/data/media/0/realdata/<segment>/qcamera.ts`, `overlay.json`, `qlog.zst/bz2/qlog`, `/data/openpilot/c3_scripts/preprocess_recorder.py` | 分段列表、下载视频与叠加层、预处理、多种排序/查看/筛选方式 |
+| **文件管理** | `FileScreen.kt` + `FileRepository.kt` | C3 SFTP 服务（22/tcp），文件系统路径 | 浏览目录、上传/下载、编辑/预览、删除/重命名、搜索、新建目录、Web 扫码管理 |
 | **驾驶设置** | `SettingsScreen.kt` + `SettingsRepository.kt` | `/data/openpilot/c3_scripts/settings_bridge.py` 读写 `/data/params/d/` 下参数 | 读写 openpilot/sunnypilot 参数 |
 
 ### 2.2 未适配/未开发功能（已置后灰显）
 
 - 视频预览
-- 文件
 - 智能计算
 - 一键下发
 - 分享中心
@@ -242,10 +242,102 @@ python3 /data/openpilot/c3_scripts/preprocess_recorder.py /data/media/0/realdata
 - 下载 `qcamera.ts` 视频到本地缓存
 - 调用 C3 预处理脚本
 - 本地播放视频与叠加层
+- **排序方式**：时间倒序/正序、名称升序/降序、就绪优先、已缓存优先
+- **查看方式**：列表视图、网格视图、紧凑视图
+- **筛选功能**：全部、就绪（有视频+叠加）、已缓存、未就绪
+- 筛选后显示匹配数量（如"显示 15 / 50 个"）
 
 ---
 
-### 3.7 驾驶设置
+### 3.7 文件管理
+
+**Android 文件**
+- `app/src/main/java/com/sunnypilot/toolbox/ui/screens/FileScreen.kt`
+- `app/src/main/java/com/sunnypilot/toolbox/data/repository/FileRepository.kt`
+- `app/src/main/java/com/sunnypilot/toolbox/model/FileEntry.kt`
+- `app/src/main/java/com/sunnypilot/toolbox/service/WebManagerServer.kt`
+
+**C3 对应**
+- SFTP 服务：C3 SSH 服务（端口 22）支持 SFTP 协议
+- 文件系统：任意路径（如 `/data`, `/data/openpilot`, `/data/media`, `/tmp` 等）
+
+**C3 对应命令/路径**
+
+```bash
+# SFTP 操作（通过 JSch ChannelSftp）
+sftp comma@192.168.43.1
+
+# 常用操作目录
+/data/openpilot/              # sunnypilot 源码
+/data/params/d/               # 参数存储
+/data/media/0/realdata/       # 行车记录
+/data/log/                    # 日志文件
+/data/community/              # 社区版配置
+/tmp/                         # 临时文件
+
+# Shell 搜索命令（FileRepository 调用）
+find /data -maxdepth 4 -iname "*keyword*" -not -path '*/\.*' 2>/dev/null | head -200
+```
+
+**功能点**
+1. **目录浏览**：
+   - 面包屑导航，快速跳转父目录
+   - 文件/目录排序（目录优先，名称字母序）
+   - 文件类型图标（文件夹、文本、配置、日志、压缩包等）
+   - 显示文件大小、修改时间、权限
+   - 识别符号链接
+
+2. **文件操作**：
+   - **预览**：前 200 行文本预览（适用于日志、配置等）
+   - **编辑**：在线编辑小于 200KB 的文本文件，保存回 C3
+   - **下载**：下载文件到 Android 设备下载目录
+   - **上传**：从 Android 选择文件上传到当前 C3 目录
+   - **删除**：删除文件或递归删除整个目录（带确认）
+   - **重命名/移动**：重命名文件或移动到新路径
+   - **文件信息**：查看详细信息（名称、路径、类型、大小、修改时间、权限）
+
+3. **高级功能**：
+   - **搜索**：在当前目录树（最深 4 层）搜索文件名，显示最多 200 个结果
+   - **新建目录**：在当前路径创建新文件夹
+   - **快捷跳转**：一键跳转到 `/data` 目录
+   - **Web 扫码管理**：生成二维码，扫码后用手机/电脑浏览器访问本地 Web 服务器（端口 8080），远程管理 C3 文件和快捷命令
+   - **刷新**：重新加载当前目录
+
+4. **排序方式**（新增）：
+   - 类型分组（默认，目录优先+按扩展名）
+   - 名称 A-Z / Z-A
+   - 大小升序/降序
+   - 时间最新/最旧
+
+5. **查看方式**（新增）：
+   - 列表视图（默认，显示完整操作按钮）
+   - 网格视图（3 列卡片，适合快速浏览）
+   - 紧凑视图（单行显示，节省空间）
+
+6. **筛选功能**（新增）：
+   - 全部（默认）
+   - 仅目录
+   - 仅文件
+   - 可编辑（小于 200KB 的文本文件）
+
+7. **用户体验**：
+   - 加载中进度提示
+   - 操作失败错误提示
+   - 文件过大编辑提醒（推荐使用桌面工具）
+   - 删除目录的递归删除警告
+   - 搜索结果计数显示
+   - 筛选时显示"显示 X / Y 项"
+
+**技术细节**
+- 基于 SFTP 协议（比 shell 命令更快更可靠）
+- 仅搜索功能使用 shell `find` 命令（SFTP 无原生搜索）
+- 文件编辑限制 200KB（防止 OOM）
+- 支持 Android SAF（Storage Access Framework）选择文件上传
+- Web 服务器使用 NanoHTTPD，提供局域网访问
+
+---
+
+### 3.8 驾驶设置
 
 **Android 文件**
 - `app/src/main/java/com/sunnypilot/toolbox/ui/screens/SettingsScreen.kt`
@@ -296,23 +388,61 @@ python3 /data/openpilot/c3_scripts/settings_bridge.py get <key>
 
 ## 四、最近新增功能
 
-### 4.1 自动连接 C3
+### 4.1 记录仪预览增强（2026-07-16）
+- **排序方式**：新增 6 种排序选项
+  - 时间倒序（默认，最新优先）
+  - 时间正序（最旧优先）
+  - 名称升序 A-Z
+  - 名称降序 Z-A
+  - 就绪优先（有视频+叠加数据的排前面）
+  - 已缓存优先（本地已缓存的排前面）
+- **查看方式**：新增 3 种视图模式
+  - 列表视图（默认，显示完整信息）
+  - 网格视图（2 列卡片布局，适合快速浏览）
+  - 紧凑视图（单行显示，节省空间）
+- **筛选功能**：新增 4 种筛选器
+  - 全部（默认）
+  - 就绪（只显示有视频+叠加的 segment）
+  - 已缓存（只显示本地已缓存的）
+  - 未就绪（只显示缺少视频或叠加的）
+- **智能统计**：状态栏显示"显示 X / Y 个"，X 为筛选后数量，Y 为总数
+- **UI 优化**：顶部工具栏新增筛选图标、排序图标、视图切换按钮
+
+### 4.2 文件管理增强（2026-07-16）
+- **排序方式**：新增 7 种排序选项
+  - 类型分组（默认，目录优先+按扩展名分组）
+  - 名称 A-Z / Z-A
+  - 大小升序/降序
+  - 时间最新/最旧
+- **查看方式**：新增 3 种视图模式
+  - 列表视图（默认，显示所有操作按钮）
+  - 网格视图（3 列卡片，图标+文件名+大小）
+  - 紧凑视图（单行，仅图标+文件名+大小）
+- **筛选功能**：新增 4 种筛选器
+  - 全部（默认）
+  - 仅目录
+  - 仅文件
+  - 可编辑（小于 200KB 的文本文件）
+- **智能统计**：筛选时显示"显示 X / Y 项"
+- **UI 优化**：顶部工具栏新增筛选图标、排序图标、视图切换按钮（与记录仪保持一致）
+
+### 4.3 自动连接 C3
 - 内置私钥 `menmen.ppk` 到 `app/src/main/assets/`
 - 连接中心新增「自动连接」按钮
 - 扫描局域网 22 端口设备，用 menmen.ppk 自动尝试 SSH 登录
 - 首次连接成功后保存 IP、端口、用户名、私钥，并开启自动重连
 - 下次启动应用时自动连回 C3
 
-### 4.2 断开连接
+### 4.3 断开连接
 - TopBar 在「已连接」状态旁显示断开图标（`LinkOff`）
 - 点击后断开 SSH 连接并回到连接中心
 
-### 4.3 连接后跳转
+### 4.4 连接后跳转
 - 无论是手动连接还是自动连接，成功后自动跳转到「硬件管理」界面
 
-### 4.4 左侧导航重新排序
-- 已完成的 7 个功能前置显示
-- 未完成的 11 个功能置后并灰显禁用
+### 4.5 左侧导航重新排序
+- 已完成的 8 个功能前置显示（连接中心、设备管家、硬件管理、终端、数据中台、记录仪预览、文件管理、驾驶设置）
+- 未完成的 10 个功能置后并灰显禁用
 
 ---
 
@@ -331,6 +461,7 @@ Android 端（Kotlin + Jetpack Compose）
     ├── 数据层：Repository + Room 数据库
     │   ├── SettingsRepository（C3 参数桥接）
     │   ├── RecorderRepository（C3 记录仪数据）
+    │   ├── FileRepository（C3 文件系统 SFTP）
     │   ├── DriveStatsRepository（本地统计 + TODO 对接 qlog）
     │   └── ConnectionConfigRepository（DataStore 持久化）
     │
@@ -389,6 +520,7 @@ sunnypilot-android/app/src/main/java/com/sunnypilot/toolbox/
 │   └── repository/
 │       ├── SettingsRepository.kt                      # C3 参数桥接
 │       ├── RecorderRepository.kt                      # 记录仪数据
+│       ├── FileRepository.kt                          # 文件系统 SFTP
 │       └── DriveStatsRepository.kt                    # 驾驶统计
 ├── model/
 │   ├── ConnectionConfig.kt                            # 连接配置数据类
@@ -398,11 +530,13 @@ sunnypilot-android/app/src/main/java/com/sunnypilot/toolbox/
 │   ├── AggregatedStats.kt                             # 聚合统计数据类
 │   ├── C3SettingMeta.kt                               # C3 设置项元数据
 │   ├── RecorderOverlay.kt                             # 记录仪叠加层数据
-│   └── QuickCommand.kt                                # 快捷命令数据
+│   ├── QuickCommand.kt                                # 快捷命令数据
+│   └── FileEntry.kt                                   # 文件条目数据
 ├── network/
 │   └── AutoDiscovery.kt                                 # 局域网 SSH 设备发现
 ├── service/
-│   └── QuickCommandWebServer.kt                       # 快捷命令本地 Web 服务
+│   ├── QuickCommandWebServer.kt                       # 快捷命令本地 Web 服务
+│   └── WebManagerServer.kt                            # 文件管理 Web 服务
 ├── ui/
 │   ├── components/
 │   │   ├── SideNavBar.kt                              # 左侧导航栏
@@ -415,6 +549,7 @@ sunnypilot-android/app/src/main/java/com/sunnypilot/toolbox/
 │   │   ├── QuickCommandsPanel.kt                      # 快捷命令面板
 │   │   ├── DataCenterScreen.kt                        # 数据中台
 │   │   ├── RecorderScreen.kt                          # 记录仪预览
+│   │   ├── FileScreen.kt                              # 文件管理
 │   │   └── SettingsScreen.kt                          # 驾驶设置
 │   ├── theme/
 │   │   ├── Color.kt                                   # 主题颜色
@@ -464,11 +599,10 @@ selfdrive/ui/sunnypilot/qt/offroad/settings/sunny_features_panel.cc
 
 1. **数据中台对接真实 qlog**：当前使用本地示例数据，需从 C3 `/data/media/0/realdata/` 的 qlog 解析真实驾驶统计。
 2. **视频预览**：尚未实现实时视频流查看。
-3. **文件管理**：尚未实现 C3 文件浏览与传输。
-4. **一键下发**：尚未实现批量命令/脚本下发。
-5. **备份与恢复刷机**：尚未实现系统备份与刷机功能。
-6. **分享中心**：尚未实现数据/视频分享。
-7. **设置与关于**：应用自身设置和版本信息页面。
+3. **一键下发**：尚未实现批量命令/脚本下发。
+4. **备份与恢复刷机**：尚未实现系统备份与刷机功能。
+5. **分享中心**：尚未实现数据/视频分享。
+6. **设置与关于**：应用自身设置和版本信息页面。
 
 ---
 
@@ -476,6 +610,9 @@ selfdrive/ui/sunnypilot/qt/offroad/settings/sunny_features_panel.cc
 
 | 日期 | 改动 | 提交/文件 |
 |------|------|----------|
+| 2026-07-16 | 记录仪预览新增排序/查看/筛选功能 | `RecorderScreen.kt` |
+| 2026-07-16 | 文件管理新增排序/查看/筛选功能 | `FileScreen.kt` |
+| 2026-07-16 | 两个模块功能文档化 | `SunnyPilotToolbox功能总结.md` |
 | 2026-07-05 | 修复 `CircleShape` 导入缺失 | `QuickCommandsPanel.kt` |
 | 2026-07-05 | 左侧导航按完成状态重新排序 | `SideNavBar.kt` |
 | 2026-07-05 | 新增自动连接、断开按钮、连接后跳转硬件管理 | `ConnectionScreen.kt`, `MainActivity.kt`, `TopBar.kt`, `SshManager.kt`, `ConnectionConfigRepository.kt`, `ConnectionConfig.kt` |

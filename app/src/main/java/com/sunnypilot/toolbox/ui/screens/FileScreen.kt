@@ -45,6 +45,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class FileSortMode {
+    NAME_ASC,           // 名称升序
+    NAME_DESC,          // 名称降序
+    SIZE_ASC,           // 大小升序
+    SIZE_DESC,          // 大小降序
+    TIME_ASC,           // 时间升序（最旧优先）
+    TIME_DESC,          // 时间降序（最新优先）
+    TYPE_GROUP          // 类型分组（目录优先，然后按扩展名）
+}
+
+enum class FileViewMode {
+    LIST,               // 列表视图（详细）
+    GRID,               // 网格视图
+    COMPACT             // 紧凑视图
+}
+
+enum class FileFilterMode {
+    ALL,                // 全部
+    DIRECTORY,          // 仅目录
+    FILE,               // 仅文件
+    EDITABLE            // 可编辑文件
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileScreen(
@@ -65,6 +88,35 @@ fun FileScreen(
     var isSearching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<FileEntry>?>(null) }
+    
+    // 新增：排序、查看、筛选模式
+    var sortMode by remember { mutableStateOf(FileSortMode.TYPE_GROUP) }
+    var viewMode by remember { mutableStateOf(FileViewMode.LIST) }
+    var filterMode by remember { mutableStateOf(FileFilterMode.ALL) }
+    
+    // 计算过滤和排序后的列表
+    val displayEntries = remember(entries, sortMode, filterMode) {
+        var filtered = when (filterMode) {
+            FileFilterMode.ALL -> entries
+            FileFilterMode.DIRECTORY -> entries.filter { it.isDirectory }
+            FileFilterMode.FILE -> entries.filter { !it.isDirectory }
+            FileFilterMode.EDITABLE -> entries.filter { !it.isDirectory && it.isEditable }
+        }
+        
+        when (sortMode) {
+            FileSortMode.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
+            FileSortMode.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
+            FileSortMode.SIZE_ASC -> filtered.sortedBy { it.size }
+            FileSortMode.SIZE_DESC -> filtered.sortedByDescending { it.size }
+            FileSortMode.TIME_ASC -> filtered.sortedBy { it.lastModified }
+            FileSortMode.TIME_DESC -> filtered.sortedByDescending { it.lastModified }
+            FileSortMode.TYPE_GROUP -> filtered.sortedWith(
+                compareByDescending<FileEntry> { it.isDirectory }
+                    .thenBy { if (it.isDirectory) it.name.lowercase() else it.name.substringAfterLast('.', "") }
+                    .thenBy { it.name.lowercase() }
+            )
+        }
+    }
 
     // 预览/操作弹窗
     var selectedFile by remember { mutableStateOf<FileEntry?>(null) }
@@ -224,6 +276,116 @@ fun FileScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
+                    // 筛选按钮
+                    var showFilterMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showFilterMenu = true }) {
+                            Icon(
+                                Icons.Default.FilterList, 
+                                "筛选", 
+                                tint = if (filterMode != FileFilterMode.ALL) Teal500 else Slate600
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showFilterMenu,
+                            onDismissRequest = { showFilterMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("全部") },
+                                onClick = { filterMode = FileFilterMode.ALL; showFilterMenu = false },
+                                leadingIcon = { if (filterMode == FileFilterMode.ALL) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("仅目录") },
+                                onClick = { filterMode = FileFilterMode.DIRECTORY; showFilterMenu = false },
+                                leadingIcon = { if (filterMode == FileFilterMode.DIRECTORY) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("仅文件") },
+                                onClick = { filterMode = FileFilterMode.FILE; showFilterMenu = false },
+                                leadingIcon = { if (filterMode == FileFilterMode.FILE) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("可编辑") },
+                                onClick = { filterMode = FileFilterMode.EDITABLE; showFilterMenu = false },
+                                leadingIcon = { if (filterMode == FileFilterMode.EDITABLE) Icon(Icons.Default.Check, null) }
+                            )
+                        }
+                    }
+                    
+                    // 排序按钮
+                    var showSortMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, "排序", tint = Slate600)
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("类型分组") },
+                                onClick = { sortMode = FileSortMode.TYPE_GROUP; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.TYPE_GROUP) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("名称 A-Z") },
+                                onClick = { sortMode = FileSortMode.NAME_ASC; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.NAME_ASC) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("名称 Z-A") },
+                                onClick = { sortMode = FileSortMode.NAME_DESC; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.NAME_DESC) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("大小升序") },
+                                onClick = { sortMode = FileSortMode.SIZE_ASC; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.SIZE_ASC) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("大小降序") },
+                                onClick = { sortMode = FileSortMode.SIZE_DESC; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.SIZE_DESC) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("时间最新") },
+                                onClick = { sortMode = FileSortMode.TIME_DESC; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.TIME_DESC) Icon(Icons.Default.Check, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("时间最旧") },
+                                onClick = { sortMode = FileSortMode.TIME_ASC; showSortMenu = false },
+                                leadingIcon = { if (sortMode == FileSortMode.TIME_ASC) Icon(Icons.Default.Check, null) }
+                            )
+                        }
+                    }
+                    
+                    // 查看方式按钮
+                    Row {
+                        IconButton(onClick = { viewMode = FileViewMode.LIST }) {
+                            Icon(
+                                Icons.Default.ViewList, 
+                                "列表",
+                                tint = if (viewMode == FileViewMode.LIST) Teal500 else Slate400
+                            )
+                        }
+                        IconButton(onClick = { viewMode = FileViewMode.GRID }) {
+                            Icon(
+                                Icons.Default.GridView, 
+                                "网格",
+                                tint = if (viewMode == FileViewMode.GRID) Teal500 else Slate400
+                            )
+                        }
+                        IconButton(onClick = { viewMode = FileViewMode.COMPACT }) {
+                            Icon(
+                                Icons.Default.ViewAgenda, 
+                                "紧凑",
+                                tint = if (viewMode == FileViewMode.COMPACT) Teal500 else Slate400
+                            )
+                        }
+                    }
+
                     // 搜索按钮
                     IconButton(onClick = {
                         isSearching = !isSearching
@@ -272,10 +434,16 @@ fun FileScreen(
                     }
                 }
 
-                // 搜索结果标签
+                // 搜索结果标签或筛选统计
                 if (searchResults != null) {
                     Text(
                         "搜索「$searchQuery」: ${searchResults?.size ?: 0} 个结果",
+                        fontSize = 12.sp,
+                        color = Slate500
+                    )
+                } else if (filterMode != FileFilterMode.ALL) {
+                    Text(
+                        "显示 ${displayEntries.size} / ${entries.size} 项",
                         fontSize = 12.sp,
                         color = Slate500
                     )
@@ -307,49 +475,93 @@ fun FileScreen(
                         }
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(displayList, key = { it.path }) { entry ->
-                            FileItemRow(
-                                entry = entry,
-                                onClick = {
-                                    if (entry.isDirectory) {
-                                        currentPath = entry.path
-                                        searchResults = null
-                                    } else {
-                                        selectedFile = entry
-                                        scope.launch {
-                                            previewContent = repo.getFilePreview(entry.path).getOrElse { "无法读取文件" }
-                                            showPreview = true
-                                        }
-                                    }
-                                },
-                                onEdit = {
+                    when (viewMode) {
+                        FileViewMode.LIST -> FileListView(
+                            displayList = displayList,
+                            onFileClick = { entry ->
+                                if (entry.isDirectory) {
+                                    currentPath = entry.path
+                                    searchResults = null
+                                } else {
                                     selectedFile = entry
-                                    if (entry.isEditable) {
-                                        scope.launch {
-                                            editContent = repo.readFileContent(entry.path).getOrElse { "读取失败" }
-                                            editFile = entry
-                                            showEdit = true
-                                        }
-                                    } else if (entry.isTextFile) {
-                                        tooLargeFile = entry
-                                        showEditTooLarge = true
-                                    }
-                                },
-                                onRename = {
-                                    renameTarget = entry
-                                    renameNewName = entry.name
-                                    showRename = true
-                                },
-                                onDownload = {
                                     scope.launch {
-                                        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                                            ?: context.filesDir
-                                        val local = java.io.File(dir, entry.name)
+                                        previewContent = repo.getFilePreview(entry.path).getOrElse { "无法读取文件" }
+                                        showPreview = true
+                                    }
+                                }
+                            },
+                            onEdit = { entry ->
+                                selectedFile = entry
+                                if (entry.isEditable) {
+                                    scope.launch {
+                                        editContent = repo.readFileContent(entry.path).getOrElse { "读取失败" }
+                                        editFile = entry
+                                        showEdit = true
+                                    }
+                                } else if (entry.isTextFile) {
+                                    tooLargeFile = entry
+                                    showEditTooLarge = true
+                                }
+                            },
+                            onRename = { entry ->
+                                renameTarget = entry
+                                renameNewName = entry.name
+                                showRename = true
+                            },
+                            onDownload = { entry ->
+                                scope.launch {
+                                    val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                                        ?: context.filesDir
+                                    val local = java.io.File(dir, entry.name)
+                                    repo.downloadFile(entry.path, local.absolutePath).fold(
+                                        onSuccess = {
+                                            Toast.makeText(context, "已下载到 ${local.absolutePath}", Toast.LENGTH_LONG).show()
+                                        },
+                                        onFailure = { errorMsg = "下载失败: ${it.message}" }
+                                    )
+                                }
+                            },
+                            onDelete = { entry ->
+                                selectedFile = entry
+                                showDeleteConfirm = true
+                            },
+                            onInfo = { entry ->
+                                selectedFile = entry
+                                showFileInfo = true
+                            }
+                        )
+                        FileViewMode.GRID -> FileGridView(
+                            displayList = displayList,
+                            onFileClick = { entry ->
+                                if (entry.isDirectory) {
+                                    currentPath = entry.path
+                                    searchResults = null
+                                } else {
+                                    selectedFile = entry
+                                    scope.launch {
+                                        previewContent = repo.getFilePreview(entry.path).getOrElse { "无法读取文件" }
+                                        showPreview = true
+                                    }
+                                }
+                            }
+                        )
+                        FileViewMode.COMPACT -> FileCompactView(
+                            displayList = displayList,
+                            onFileClick = { entry ->
+                                if (entry.isDirectory) {
+                                    currentPath = entry.path
+                                    searchResults = null
+                                } else {
+                                    selectedFile = entry
+                                    scope.launch {
+                                        previewContent = repo.getFilePreview(entry.path).getOrElse { "无法读取文件" }
+                                        showPreview = true
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
                                         repo.downloadFile(entry.path, local.absolutePath).fold(
                                             onSuccess = {
                                                 Toast.makeText(context, "已下载到 ${local.absolutePath}", Toast.LENGTH_LONG).show()
@@ -838,6 +1050,166 @@ private fun InfoRow(label: String, value: String) {
     Row {
         Text("$label: ", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Slate700, modifier = Modifier.width(70.dp))
         Text(value, fontSize = 13.sp, color = Slate600)
+    }
+}
+
+// ── 文件列表视图 ──
+@Composable
+private fun FileListView(
+    displayList: List<FileEntry>,
+    onFileClick: (FileEntry) -> Unit,
+    onEdit: (FileEntry) -> Unit,
+    onRename: (FileEntry) -> Unit,
+    onDownload: (FileEntry) -> Unit,
+    onDelete: (FileEntry) -> Unit,
+    onInfo: (FileEntry) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        items(displayList, key = { it.path }) { entry ->
+            FileItemRow(
+                entry = entry,
+                onClick = { onFileClick(entry) },
+                onEdit = { onEdit(entry) },
+                onRename = { onRename(entry) },
+                onDownload = { onDownload(entry) },
+                onDelete = { onDelete(entry) },
+                onInfo = { onInfo(entry) }
+            )
+        }
+    }
+}
+
+// ── 文件网格视图 ──
+@Composable
+private fun FileGridView(
+    displayList: List<FileEntry>,
+    onFileClick: (FileEntry) -> Unit
+) {
+    val scrollState = rememberScrollState()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(12.dp)
+    ) {
+        displayList.chunked(3).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowItems.forEach { entry ->
+                    FileGridItem(
+                        entry = entry,
+                        onClick = { onFileClick(entry) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                // 填充空白
+                repeat(3 - rowItems.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun FileGridItem(
+    entry: FileEntry,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Slate50),
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .aspectRatio(1f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            FileTypeIcon(entry, size = 48)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = entry.name,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = Slate900,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            if (!entry.isDirectory) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = entry.sizeHuman,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate500
+                )
+            }
+        }
+    }
+}
+
+// ── 文件紧凑视图 ──
+@Composable
+private fun FileCompactView(
+    displayList: List<FileEntry>,
+    onFileClick: (FileEntry) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        items(displayList, key = { it.path }) { entry ->
+            FileCompactItem(
+                entry = entry,
+                onClick = { onFileClick(entry) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun FileCompactItem(
+    entry: FileEntry,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+    ) {
+        FileTypeIcon(entry, size = 24)
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = entry.name,
+            style = MaterialTheme.typography.bodySmall,
+            color = Slate900,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (!entry.isDirectory) {
+            Text(
+                text = entry.sizeHuman,
+                style = MaterialTheme.typography.labelSmall,
+                color = Slate500
+            )
+        }
     }
 }
 
