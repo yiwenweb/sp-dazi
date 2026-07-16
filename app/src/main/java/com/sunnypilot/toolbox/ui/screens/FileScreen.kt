@@ -562,26 +562,6 @@ fun FileScreen(
                         )
                     }
                 }
-                                        repo.downloadFile(entry.path, local.absolutePath).fold(
-                                            onSuccess = {
-                                                Toast.makeText(context, "已下载到 ${local.absolutePath}", Toast.LENGTH_LONG).show()
-                                            },
-                                            onFailure = { errorMsg = "下载失败: ${it.message}" }
-                                        )
-                                    }
-                                },
-                                onDelete = {
-                                    selectedFile = entry
-                                    showDeleteConfirm = true
-                                },
-                                onInfo = {
-                                    selectedFile = entry
-                                    showFileInfo = true
-                                }
-                            )
-                        }
-                    }
-                }
             }
         }
     }
