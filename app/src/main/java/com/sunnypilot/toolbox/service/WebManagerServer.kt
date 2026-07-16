@@ -27,7 +27,8 @@ import java.util.concurrent.atomic.AtomicReference
 class WebManagerServer(
     port: Int,
     private val dao: QuickCommandDao,
-    private val sshManager: SshManager
+    private val sshManager: SshManager,
+    private val onExecuteCommand: ((String) -> Unit)? = null
 ) : NanoHTTPD(port) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
@@ -56,6 +57,21 @@ class WebManagerServer(
             // ── 快捷命令 API ──
             uri == "api/terminal" && method == Method.GET ->
                 respondText(getTerminalSnapshot())
+
+            uri == "api/execute" && method == Method.POST -> {
+                val body = parseBody(session)
+                val obj = try {
+                    json.decodeFromString(JsonObject.serializer(), body.ifEmpty { "{}" })
+                } catch (e: Exception) {
+                    return badRequest("Invalid JSON")
+                }
+                val command = obj["command"]?.jsonPrimitive?.contentOrNull
+                    ?: return badRequest("Missing command")
+                
+                // 执行命令
+                onExecuteCommand?.invoke(command)
+                respondJson("{\"ok\":true,\"command\":\"${command.replace("\"", "\\\\\"")}\"}")
+            }
 
             uri == "api/commands" && method == Method.GET -> {
                 val commands = dao.getAllSync()
@@ -190,30 +206,57 @@ class WebManagerServer(
 
     private fun handleUpload(session: IHTTPSession, targetDir: String): Response {
         try {
-            session.parseBody(HashMap())
-            val files = session.parameters.entries
-                .filter { it.key.startsWith("file") && it.value.isNotEmpty() }
-
-            if (files.isEmpty()) {
-                return respondJson("""{"error":"No file uploaded"}""", Status.BAD_REQUEST)
-            }
-
-            val results = mutableListOf<String>()
-            for ((paramName, values) in files) {
-                val fileName = session.parameters.getOrDefault("${paramName}_name", listOf("uploaded_file")).first()
-                val fileBytes = values.first().toByteArray(Charsets.ISO_8859_1)
-                val tempFile = File.createTempFile("ul_", "_$fileName")
-                tempFile.writeBytes(fileBytes)
-
-                val remotePath = if (targetDir.endsWith("/")) "$targetDir$fileName" else "$targetDir/$fileName"
-                val result = runBlocking {
-                    sshManager.uploadFile(tempFile.absolutePath, remotePath)
+            val files = HashMap<String, String>()
+            session.parseBody(files)
+            
+            // 获取上传的文件
+            val uploadedFiles = mutableListOf<String>()
+            val failedFiles = mutableListOf<String>()
+            
+            for ((key, tempPath) in files) {
+                if (key.startsWith("file")) {
+                    // 获取原始文件名
+                    val fileName = session.parms.getOrDefault("${key}_name", "uploaded_${System.currentTimeMillis()}")
+                    
+                    try {
+                        val tempFile = File(tempPath)
+                        if (!tempFile.exists() || tempFile.length() == 0L) {
+                            failedFiles.add("$fileName (empty)")
+                            continue
+                        }
+                        
+                        val remotePath = if (targetDir.endsWith("/")) "$targetDir$fileName" else "$targetDir/$fileName"
+                        val result = runBlocking {
+                            sshManager.uploadFile(tempFile.absolutePath, remotePath)
+                        }
+                        
+                        if (result.isSuccess) {
+                            uploadedFiles.add(fileName)
+                        } else {
+                            failedFiles.add("$fileName: ${result.exceptionOrNull()?.message}")
+                        }
+                        
+                        // 清理临时文件
+                        tempFile.delete()
+                    } catch (e: Exception) {
+                        failedFiles.add("$fileName: ${e.message}")
+                    }
                 }
-                tempFile.delete()
-                results.add(if (result.isSuccess) "OK: $fileName" else "FAIL: $fileName - ${result.exceptionOrNull()?.message}")
             }
-
-            return respondJson(json.encodeToString(mapOf("results" to results)))
+            
+            val results = mutableListOf<String>()
+            if (uploadedFiles.isNotEmpty()) {
+                results.add("成功: ${uploadedFiles.joinToString(", ")}")
+            }
+            if (failedFiles.isNotEmpty()) {
+                results.add("失败: ${failedFiles.joinToString(", ")}")
+            }
+            
+            return respondJson(json.encodeToString(mapOf(
+                "success" to uploadedFiles.size,
+                "failed" to failedFiles.size,
+                "results" to results
+            )))
         } catch (e: Exception) {
             return respondJson("""{"error":"Upload error: ${e.message}"}""", Status.INTERNAL_ERROR)
         }
@@ -327,107 +370,157 @@ class WebManagerServer(
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>SunnyPilot 工具箱</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: #f1f5f9; color: #0f172a; min-height: 100vh;
+  background: #f1f5f9; color: #0f172a; min-height: 100vh; font-size: 14px;
 }
+
 /* 标签导航 */
 .tabs {
   display: flex; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   position: sticky; top: 0; z-index: 10;
 }
 .tab {
-  flex: 1; text-align: center; padding: 14px 0; cursor: pointer;
-  font-size: 15px; font-weight: 500; color: #64748b; border-bottom: 3px solid transparent;
+  flex: 1; text-align: center; padding: 12px 8px; cursor: pointer;
+  font-size: 13px; font-weight: 500; color: #64748b; border-bottom: 3px solid transparent;
   transition: all .2s; user-select: none;
 }
 .tab.active { color: #0d9488; border-bottom-color: #0d9488; }
 .tab:hover { background: #f8fafc; }
 
-.page { display: none; padding: 16px; max-width: 800px; margin: 0 auto; }
+.page { display: none; padding: 12px; }
 .page.active { display: block; }
 
 /* 通用卡片 */
 .card {
-  background: #fff; border-radius: 12px; padding: 16px;
+  background: #fff; border-radius: 10px; padding: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px;
+  max-width: 800px; margin-left: auto; margin-right: auto;
 }
 
-/* 首页 */
-.hero { text-align: center; padding: 40px 16px; }
-.hero h1 { font-size: 28px; color: #0f172a; margin-bottom: 8px; }
-.hero .device { font-size: 14px; color: #64748b; margin-bottom: 16px; }
-.hero .features { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
-.feature-item {
-  background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 10px;
-  padding: 14px 20px; font-size: 14px; color: #0d9488; font-weight: 500;
-  cursor: pointer; transition: all .2s;
+/* 终端 */
+.terminal { 
+  background: #0f172a; color: #e2e8f0; border-radius: 10px;
+  padding: 10px; max-width: 800px; margin: 0 auto 12px;
 }
-.feature-item:hover { background: #ccfbf1; }
+.terminal-header { 
+  display: flex; justify-content: space-between; align-items: center; 
+  margin-bottom: 8px; font-size: 13px; font-weight: 600;
+}
+.terminal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.terminal pre { 
+  margin: 0; white-space: pre-wrap; word-break: break-all; 
+  font-family: 'Courier New', monospace; font-size: 11px; 
+  max-height: 300px; overflow-y: auto; line-height: 1.4;
+  background: #1e293b; padding: 8px; border-radius: 6px;
+}
+.terminal-input {
+  display: flex; gap: 6px; margin-top: 8px;
+}
+.terminal-input input {
+  flex: 1; padding: 6px 8px; border: 1px solid #334155;
+  border-radius: 6px; font-size: 12px; background: #1e293b;
+  color: #e2e8f0; font-family: 'Courier New', monospace;
+}
+.terminal-input input::placeholder { color: #64748b; }
 
 /* 文件管理 */
-.breadcrumb { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; font-size: 13px; }
+.breadcrumb { 
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap; 
+  margin-bottom: 10px; font-size: 12px; 
+}
 .breadcrumb a { color: #0d9488; text-decoration: none; cursor: pointer; }
 .breadcrumb a:hover { text-decoration: underline; }
 .breadcrumb span { color: #94a3b8; }
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-.file-table { width: 100%; border-collapse: collapse; }
-.file-table th { text-align: left; font-size: 12px; color: #64748b; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
-.file-table td { padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
-.file-table tr:hover td { background: #f8fafc; }
-.file-icon { margin-right: 8px; }
-.file-actions button { margin-left: 4px; }
-.loading { text-align: center; color: #94a3b8; padding: 24px; }
+.toolbar { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+
+.file-list { width: 100%; }
+.file-item {
+  display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #f1f5f9;
+  cursor: pointer; font-size: 12px;
+}
+.file-item:hover { background: #f8fafc; }
+.file-icon { margin-right: 8px; font-size: 16px; }
+.file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.file-size { color: #64748b; margin: 0 8px; min-width: 60px; text-align: right; }
+.file-actions { display: flex; gap: 4px; }
+.loading { text-align: center; color: #94a3b8; padding: 20px; font-size: 13px; }
 
 /* 表单 */
-.form-group { margin-bottom: 12px; }
-label { display: block; font-size: 13px; color: #64748b; margin-bottom: 4px; }
+.form-group { margin-bottom: 10px; }
+label { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; }
 input, textarea {
-  width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0;
-  border-radius: 8px; font-size: 14px; background: #fff;
+  width: 100%; padding: 6px 8px; border: 1px solid #e2e8f0;
+  border-radius: 6px; font-size: 13px; background: #fff;
 }
-textarea { resize: vertical; min-height: 60px; }
-.btn-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+textarea { resize: vertical; min-height: 50px; font-family: 'Courier New', monospace; }
+.btn-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 button {
-  border: none; border-radius: 8px; padding: 10px 14px;
-  font-size: 14px; cursor: pointer; font-weight: 500;
+  border: none; border-radius: 6px; padding: 6px 10px;
+  font-size: 12px; cursor: pointer; font-weight: 500; white-space: nowrap;
 }
 .primary { background: #0d9488; color: #fff; }
 .secondary { background: #e2e8f0; color: #334155; }
 .danger { background: #fee2e2; color: #ef4444; }
-.small { padding: 6px 10px; font-size: 12px; }
+.small { padding: 5px 8px; font-size: 11px; }
 
 /* 命令列表 */
-.item { border-bottom: 1px solid #f1f5f9; padding: 12px 0; }
+.item { border-bottom: 1px solid #f1f5f9; padding: 10px 0; }
 .item:last-child { border-bottom: none; }
-.item-title { font-weight: 600; margin-bottom: 4px; }
-.item-desc { font-size: 13px; color: #64748b; margin-bottom: 4px; }
-.item-cmd { font-family: monospace; font-size: 12px; color: #475569; background: #f1f5f9; padding: 4px 8px; border-radius: 4px; overflow-wrap: break-word; }
-.empty { text-align: center; color: #94a3b8; padding: 24px; }
+.item-title { font-weight: 600; margin-bottom: 4px; font-size: 13px; }
+.item-desc { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+.item-cmd { 
+  font-family: 'Courier New', monospace; font-size: 11px; 
+  color: #475569; background: #f1f5f9; padding: 4px 6px; 
+  border-radius: 4px; overflow-wrap: break-word; white-space: pre-wrap;
+}
+.empty { text-align: center; color: #94a3b8; padding: 20px; font-size: 12px; }
 
-/* 隐藏的文件上传 input */
-#fileInput { display: none; }
+/* 首页 */
+.hero { text-align: center; padding: 30px 16px; }
+.hero h1 { font-size: 24px; color: #0f172a; margin-bottom: 8px; }
+.hero .device { font-size: 13px; color: #64748b; margin-bottom: 16px; }
+.hero .features { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+.feature-item {
+  background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 8px;
+  padding: 12px 16px; font-size: 13px; color: #0d9488; font-weight: 500;
+  cursor: pointer; transition: all .2s;
+}
+.feature-item:hover { background: #ccfbf1; }
+
+/* 隐藏元素 */
+#fileInput, #importCmdFile { display: none; }
 
 /* Toast */
 .toast {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 20px;
-  font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 100;
+  background: #0f172a; color: #fff; padding: 8px 14px; border-radius: 20px;
+  font-size: 12px; opacity: 0; transition: opacity .3s; pointer-events: none; 
+  z-index: 1000; max-width: 90%;
 }
 .toast.show { opacity: 1; }
+
+@media (max-width: 640px) {
+  body { font-size: 13px; }
+  .tab { font-size: 12px; padding: 10px 6px; }
+  .terminal pre { font-size: 10px; max-height: 200px; }
+  .hero h1 { font-size: 20px; }
+  .file-item { font-size: 11px; }
+}
 </style>
 </head>
 <body>
 
 <!-- 标签导航 -->
 <div class="tabs">
-  <div class="tab active" data-page="home">首页</div>
-  <div class="tab" data-page="files">文件管理</div>
-  <div class="tab" data-page="commands">快捷命令</div>
+  <div class="tab active" data-page="home">🏠 首页</div>
+  <div class="tab" data-page="terminal">🖥️ 终端</div>
+  <div class="tab" data-page="files">📁 文件</div>
+  <div class="tab" data-page="commands">⚡ 命令</div>
 </div>
 
 <!-- ====== 首页 ====== -->
@@ -436,8 +529,28 @@ button {
     <h1>🚗 SunnyPilot 工具箱</h1>
     <div class="device">远程管理 C3 车机设备</div>
     <div class="features">
+      <div class="feature-item" onclick="switchTab('terminal')">🖥️ SSH 终端</div>
       <div class="feature-item" onclick="switchTab('files')">📁 文件管理</div>
       <div class="feature-item" onclick="switchTab('commands')">⚡ 快捷命令</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 终端 ====== -->
+<div id="page-terminal" class="page">
+  <div class="terminal">
+    <div class="terminal-header">
+      <span>🖥️ 终端输出</span>
+      <div class="terminal-actions">
+        <button class="secondary small" onclick="exportTerminal()">💾</button>
+        <button class="secondary small" onclick="copyTerminal()">📋</button>
+        <button class="secondary small" onclick="clearTerminal()">🗑️</button>
+      </div>
+    </div>
+    <pre id="terminalContent">等待终端输出...</pre>
+    <div class="terminal-input">
+      <input type="text" id="cmdInput" placeholder="输入命令回车执行..." onkeypress="handleCmdEnter(event)">
+      <button class="primary small" onclick="sendCommand()">▶</button>
     </div>
   </div>
 </div>
@@ -446,34 +559,34 @@ button {
 <div id="page-files" class="page">
   <div class="card">
     <div class="toolbar">
-      <button class="primary small" onclick="uploadFile()">📤 上传文件</button>
+      <button class="primary small" onclick="uploadFile()">📤 上传</button>
       <button class="secondary small" onclick="showMkdir()">📁 新建目录</button>
-      <button class="secondary small" onclick="refreshFiles()">🔄 刷新</button>
+      <button class="secondary small" onclick="refreshFiles()">🔄</button>
       <input type="file" id="fileInput" multiple onchange="doUpload(this)">
-      <span style="font-size:12px;color:#94a3b8;margin-left:auto;" id="fileCount"></span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:auto;" id="fileCount"></span>
     </div>
     <div class="breadcrumb" id="breadcrumb"></div>
-    <div id="fileList" class="loading">点击"文件管理"标签加载</div>
+    <div id="fileList" class="loading">切换到文件标签加载</div>
   </div>
 </div>
 
 <!-- ====== 快捷命令 ====== -->
 <div id="page-commands" class="page">
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h2 style="font-size:18px;">快捷命令管理</h2>
-      <div>
-        <button class="primary small" onclick="showCmdForm()">+ 新增</button>
-        <button class="secondary small" onclick="exportCmdJson()">导出</button>
-        <button class="secondary small" onclick="document.getElementById('importCmdFile').click()">导入</button>
-        <input type="file" id="importCmdFile" accept="application/json" onchange="importCmdJson(this)" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h2 style="font-size:16px;">⚡ 快捷命令</h2>
+      <div style="display:flex;gap:6px;">
+        <button class="primary small" onclick="showCmdForm()">+</button>
+        <button class="secondary small" onclick="exportCmdJson()">💾</button>
+        <button class="secondary small" onclick="document.getElementById('importCmdFile').click()">📥</button>
+        <input type="file" id="importCmdFile" accept="application/json" onchange="importCmdJson(this)">
       </div>
     </div>
-    <div id="cmdFormCard" style="display:none; margin-bottom:12px; padding:16px; background:#f8fafc; border-radius:10px;">
+    <div id="cmdFormCard" style="display:none; margin-bottom:10px; padding:10px; background:#f8fafc; border-radius:8px;">
       <input type="hidden" id="cmdId">
       <div class="form-group"><label>命令名称</label><input type="text" id="cmdTitle" placeholder="例如：重启 openpilot"></div>
-      <div class="form-group"><label>命令内容</label><textarea id="cmdCommand" placeholder="例如：reboot"></textarea></div>
-      <div class="form-group"><label>作用说明</label><input type="text" id="cmdDesc" placeholder="简短描述用途"></div>
+      <div class="form-group"><label>命令内容</label><textarea id="cmdCommand" placeholder="例如：sudo reboot"></textarea></div>
+      <div class="form-group"><label>作用说明</label><input type="text" id="cmdDesc" placeholder="简短描述"></div>
       <div class="btn-row">
         <button class="primary" onclick="saveCommand()">保存</button>
         <button class="secondary" onclick="hideCmdForm()">取消</button>
@@ -492,7 +605,9 @@ function switchTab(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelector(`.tab[data-page="${'$'}{name}"]`).classList.add('active');
   document.getElementById(`page-${'$'}{name}`).classList.add('active');
-  if (name === 'files') loadFiles(currentFilePath);
+  
+  if (name === 'terminal') loadTerminal();
+  if (name === 'files' && !filesLoaded) loadFiles('/');
   if (name === 'commands') loadCommands();
 }
 
@@ -504,7 +619,87 @@ document.querySelectorAll('.tab').forEach(tab => {
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2000);
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+// ====== 终端 ======
+let terminalInterval;
+
+async function loadTerminal() {
+  try {
+    const res = await fetch('/api/terminal');
+    const text = await res.text();
+    const el = document.getElementById('terminalContent');
+    if (text && text !== el.textContent) {
+      el.textContent = text || '等待终端输出...';
+      el.scrollTop = el.scrollHeight;
+    }
+  } catch (e) {
+    console.error('终端加载失败:', e);
+  }
+}
+
+function copyTerminal() {
+  const text = document.getElementById('terminalContent').textContent;
+  if (!text || text === '等待终端输出...') {
+    toast('终端无内容');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(() => toast('复制失败'));
+}
+
+function exportTerminal() {
+  const text = document.getElementById('terminalContent').textContent;
+  if (!text || text === '等待终端输出...') {
+    toast('终端无内容');
+    return;
+  }
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'terminal_' + Date.now() + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('已导出');
+}
+
+function clearTerminal() {
+  if (!confirm('确定清空？')) return;
+  document.getElementById('terminalContent').textContent = '终端已清空';
+}
+
+async function executeCmd(cmd) {
+  if (!cmd || !cmd.trim()) return;
+  try {
+    const res = await fetch('/api/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ command: cmd.trim() })
+    });
+    const data = await res.json();
+    toast(data.error ? '执行失败' : '命令已发送');
+    setTimeout(loadTerminal, 500);
+  } catch(e) {
+    toast('执行失败');
+  }
+}
+
+function sendCommand() {
+  const input = document.getElementById('cmdInput');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  executeCmd(cmd);
+  input.value = '';
+}
+
+function handleCmdEnter(e) {
+  if (e.key === 'Enter') sendCommand();
 }
 
 // ====== 文件管理 ======
@@ -529,37 +724,37 @@ async function loadFiles(path) {
       cum += '/' + p;
       bc += '<span> / </span>';
       if (i === parts.length - 1) {
-        bc += `<strong style="color:#0f172a">${'$'}{p}</strong>`;
+        bc += `<strong style="color:#0f172a">${'$'}{escapeHtml(p)}</strong>`;
       } else {
-        bc += `<a onclick="loadFiles('${'$'}{cum}')">${'$'}{p}</a>`;
+        bc += `<a onclick="loadFiles('${'$'}{cum}')">${'$'}{escapeHtml(p)}</a>`;
       }
     });
     document.getElementById('breadcrumb').innerHTML = bc;
 
     if (files.length === 0) {
-      el.innerHTML = '<div class="loading">此目录为空</div>';
+      el.innerHTML = '<div class="loading">目录为空</div>';
       return;
     }
-    let html = '<table class="file-table"><tr><th>名称</th><th>大小</th><th>修改时间</th><th style="width:120px">操作</th></tr>';
+    
+    let html = '<div class="file-list">';
     files.forEach(f => {
       const icon = f.isDirectory ? '📁' : '📄';
-      html += `<tr>
-        <td onclick="${'$'}{f.isDirectory ? `loadFiles('${'$'}{f.path}')` : `downloadFile('${'$'}{f.path}')`}">
-          <span class="file-icon">${'$'}{icon}</span>${'$'}{escapeHtml(f.name)}
-        </td>
-        <td style="color:#64748b">${'$'}{f.isDirectory ? '-' : f.sizeHuman}</td>
-        <td style="color:#64748b;font-size:12px">${'$'}{f.lastModified > 0 ? new Date(f.lastModified).toLocaleString() : ''}</td>
-        <td class="file-actions">
-          <button class="secondary small" onclick="event.stopPropagation();downloadFile('${'$'}{f.path}')" ${'$'}{f.isDirectory?'disabled':''}>下载</button>
-          <button class="danger small" onclick="event.stopPropagation();deleteFile('${'$'}{f.path}',${'$'}{f.isDirectory})">删除</button>
-        </td>
-      </tr>`;
+      const action = f.isDirectory ? `loadFiles('${'$'}{f.path}')` : `downloadFile('${'$'}{f.path}')`;
+      html += `<div class="file-item" onclick="${'$'}{action}">
+        <span class="file-icon">${'$'}{icon}</span>
+        <span class="file-name">${'$'}{escapeHtml(f.name)}</span>
+        <span class="file-size">${'$'}{f.isDirectory ? '-' : f.sizeHuman}</span>
+        <div class="file-actions">
+          ${'$'}{!f.isDirectory ? `<button class="secondary small" onclick="event.stopPropagation();downloadFile('${'$'}{f.path}')">⬇</button>` : ''}
+          <button class="danger small" onclick="event.stopPropagation();deleteFile('${'$'}{f.path}',${'$'}{f.isDirectory})">🗑</button>
+        </div>
+      </div>`;
     });
-    html += '</table>';
+    html += '</div>';
     el.innerHTML = html;
     filesLoaded = true;
   } catch (e) {
-    el.innerHTML = `<div class="loading">加载失败: ${'$'}{e.message}</div>`;
+    el.innerHTML = `<div class="loading">加载失败</div>`;
   }
 }
 
@@ -573,9 +768,12 @@ function downloadFile(path) {
 }
 
 function uploadFile() { document.getElementById('fileInput').click(); }
+
 async function doUpload(input) {
   const files = input.files;
   if (!files.length) return;
+  
+  toast('上传中...');
   const formData = new FormData();
   for (const f of files) formData.append('file', f);
 
@@ -584,14 +782,16 @@ async function doUpload(input) {
       method: 'POST', body: formData
     });
     const data = await res.json();
-    toast(data.results ? data.results.join(', ') : '上传完成');
+    toast(data.results ? data.results.join(' ') : '上传完成');
     loadFiles(currentFilePath);
-  } catch (e) { toast('上传失败'); }
+  } catch (e) { 
+    toast('上传失败'); 
+  }
   input.value = '';
 }
 
 async function deleteFile(path, isDir) {
-  if (!confirm(`确定删除 ${'$'}{path}？${'$'}{isDir?'（目录及所有内容）':''}`)) return;
+  if (!confirm(`确定删除？`)) return;
   try {
     await fetch(`/api/files?path=${'$'}{encodeURIComponent(path)}&isDir=${'$'}{isDir}`, { method: 'DELETE' });
     toast('已删除');
@@ -600,107 +800,141 @@ async function deleteFile(path, isDir) {
 }
 
 function showMkdir() {
-  const name = prompt('目录名称：');
+  const name = prompt('目录名称:');
   if (!name) return;
   const newPath = currentFilePath === '/' ? '/' + name : currentFilePath + '/' + name;
   fetch('/api/files/mkdir', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: newPath})
+    method: 'POST', 
+    headers: {'Content-Type': 'application/json; charset=utf-8'}, 
+    body: JSON.stringify({path: newPath})
   }).then(r => r.json()).then(d => {
-    toast(d.ok ? '创建成功' : (d.error || '创建失败'));
+    toast(d.ok ? '创建成功' : '创建失败');
     loadFiles(currentFilePath);
   });
 }
 
 // ====== 快捷命令 ======
 let commands = [];
+
 async function loadCommands() {
   try {
     const res = await fetch('/api/commands');
     commands = await res.json();
     renderCommands();
-  } catch (e) {}
+  } catch (e) {
+    toast('加载失败');
+  }
 }
+
 function renderCommands() {
   const el = document.getElementById('cmdList');
-  if (commands.length === 0) { el.innerHTML = '<div class="empty">暂无快捷命令</div>'; return; }
+  if (commands.length === 0) { 
+    el.innerHTML = '<div class="empty">暂无快捷命令</div>'; 
+    return; 
+  }
   el.innerHTML = commands.map(c => `
     <div class="item">
       <div class="item-title">${'$'}{escapeHtml(c.title)}</div>
       <div class="item-desc">${'$'}{escapeHtml(c.description || '')}</div>
       <div class="item-cmd">${'$'}{escapeHtml(c.command)}</div>
       <div class="btn-row">
-        <button class="secondary small" onclick="editCmd(${'$'}{c.id})">编辑</button>
-        <button class="danger small" onclick="deleteCmd(${'$'}{c.id})">删除</button>
+        <button class="primary small" onclick="executeCmd('${'$'}{escapeHtml(c.command)}')">▶</button>
+        <button class="secondary small" onclick="editCmd(${'$'}{c.id})">✏️</button>
+        <button class="danger small" onclick="deleteCmd(${'$'}{c.id})">🗑️</button>
       </div>
     </div>
   `).join('');
 }
+
 function showCmdForm(cmd) {
   document.getElementById('cmdFormCard').style.display = 'block';
   document.getElementById('cmdId').value = cmd ? cmd.id : '';
   document.getElementById('cmdTitle').value = cmd ? cmd.title : '';
   document.getElementById('cmdCommand').value = cmd ? cmd.command : '';
   document.getElementById('cmdDesc').value = cmd ? cmd.description : '';
-  document.getElementById('cmdTitle').focus();
 }
+
 function hideCmdForm() {
   document.getElementById('cmdFormCard').style.display = 'none';
-  document.getElementById('cmdId').value = '';
-  document.getElementById('cmdTitle').value = '';
-  document.getElementById('cmdCommand').value = '';
-  document.getElementById('cmdDesc').value = '';
 }
+
 async function saveCommand() {
   const id = document.getElementById('cmdId').value;
   const body = {
     title: document.getElementById('cmdTitle').value.trim(),
-    command: document.getElementById('cmdCommand').value,
+    command: document.getElementById('cmdCommand').value.trim(),
     description: document.getElementById('cmdDesc').value.trim()
   };
   if (!body.title || !body.command) { toast('名称和命令不能为空'); return; }
-  if (id) {
-    await fetch('/api/commands/' + id, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  } else {
-    await fetch('/api/commands', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  
+  try {
+    if (id) {
+      await fetch('/api/commands/' + id, { method: 'PUT', headers: {'Content-Type': 'application/json; charset=utf-8'}, body: JSON.stringify(body) });
+    } else {
+      await fetch('/api/commands', { method: 'POST', headers: {'Content-Type': 'application/json; charset=utf-8'}, body: JSON.stringify(body) });
+    }
+    hideCmdForm(); await loadCommands(); toast('保存成功');
+  } catch(e) {
+    toast('保存失败');
   }
-  hideCmdForm(); await loadCommands(); toast('保存成功');
 }
-function editCmd(id) { const c = commands.find(x => x.id === id); if (c) showCmdForm(c); }
+
+function editCmd(id) { 
+  const c = commands.find(x => x.id === id); 
+  if (c) showCmdForm(c); 
+}
+
 async function deleteCmd(id) {
   if (!confirm('确定删除？')) return;
-  await fetch('/api/commands/' + id, { method: 'DELETE' });
-  await loadCommands(); toast('已删除');
-}
-async function exportCmdJson() {
-  const blob = new Blob([JSON.stringify(commands, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'quick_commands.json'; a.click(); URL.revokeObjectURL(a.href);
-}
-async function importCmdJson(input) {
-  const file = input.files[0]; if (!file) return;
   try {
-    const text = await file.text(); const arr = JSON.parse(text);
+    await fetch('/api/commands/' + id, { method: 'DELETE' });
+    await loadCommands(); 
+    toast('已删除');
+  } catch(e) {
+    toast('删除失败');
+  }
+}
+
+async function exportCmdJson() {
+  const blob = new Blob([JSON.stringify(commands, null, 2)], { type: 'application/json;charset=utf-8' });
+  const a = document.createElement('a'); 
+  a.href = URL.createObjectURL(blob);
+  a.download = 'commands_' + Date.now() + '.json'; 
+  a.click(); 
+  URL.revokeObjectURL(a.href);
+  toast('已导出');
+}
+
+async function importCmdJson(input) {
+  const file = input.files[0]; 
+  if (!file) return;
+  try {
+    const text = await file.text(); 
+    const arr = JSON.parse(text);
     if (!Array.isArray(arr)) throw new Error('格式错误');
+    
+    let success = 0;
     for (const c of arr) {
-      await fetch('/api/commands', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title: c.title||'', command: c.command||'', description: c.description||''})
-      });
+      try {
+        await fetch('/api/commands', {
+          method: 'POST', 
+          headers: {'Content-Type': 'application/json; charset=utf-8'},
+          body: JSON.stringify({title: c.title||'', command: c.command||'', description: c.description||''})
+        });
+        success++;
+      } catch(e) {}
     }
-    await loadCommands(); toast('导入成功');
-  } catch (e) { toast('导入失败: ' + e.message); }
+    await loadCommands(); 
+    toast(`导入 ${'$'}{success}/${'$'}{arr.length}`);
+  } catch (e) { 
+    toast('导入失败'); 
+  }
   input.value = '';
 }
-function escapeHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
 
-// 初始化：只加载快捷命令（本地数据库，很快）；文件列表延迟到切换标签时
+// 初始化
 loadCommands();
-
-document.querySelector('.tab[data-page="files"]').addEventListener('click', function() {
-  if (!filesLoaded) loadFiles('/');
-});
+setInterval(loadTerminal, 1000);
 </script>
 </body>
 </html>
