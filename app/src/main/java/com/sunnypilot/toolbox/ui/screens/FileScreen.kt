@@ -1074,12 +1074,12 @@ private fun FileGridView(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(8.dp)
+            .padding(6.dp)
     ) {
-        displayList.chunked(3).forEach { rowItems ->
+        displayList.chunked(4).forEach { rowItems ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 rowItems.forEach { entry ->
                     FileGridItem(
@@ -1089,11 +1089,11 @@ private fun FileGridView(
                     )
                 }
                 // 填充空白
-                repeat(3 - rowItems.size) {
+                repeat(4 - rowItems.size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
     }
 }
@@ -1105,18 +1105,18 @@ private fun FileGridItem(
     modifier: Modifier = Modifier
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(6.dp),
         colors = CardDefaults.cardColors(containerColor = Slate50),
         modifier = modifier.clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp),
+                .padding(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            FileTypeIcon(entry, size = 40)
-            Spacer(modifier = Modifier.height(4.dp))
+            FileTypeIcon(entry, size = 36)
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = entry.name,
                 style = MaterialTheme.typography.bodySmall,
@@ -1125,15 +1125,16 @@ private fun FileGridItem(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                fontSize = 11.sp
+                fontSize = 10.sp,
+                lineHeight = 12.sp
             )
             if (!entry.isDirectory) {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(1.dp))
                 Text(
                     text = entry.sizeHuman,
                     style = MaterialTheme.typography.labelSmall,
                     color = Slate500,
-                    fontSize = 10.sp
+                    fontSize = 9.sp
                 )
             }
         }
