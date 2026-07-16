@@ -466,7 +466,7 @@ private fun ComplexSettingCard(
                         color = Slate500,
                         lineHeight = 15.sp
                     )
-                </Column>
+                }
                 
                 if (isPending) {
                     CircularProgressIndicator(
