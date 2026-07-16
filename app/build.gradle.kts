@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
     implementation(libs.spongycastle.prov)

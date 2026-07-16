@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.repository.VideoStreamRepository
+import com.sunnypilot.toolbox.data.repository.HudDataRepository
+import com.sunnypilot.toolbox.data.repository.HudData
+import com.sunnypilot.toolbox.ui.components.HudOverlay
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -55,16 +58,19 @@ fun VideoScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val videoRepo = remember { VideoStreamRepository(context, sshManager) }
+    val hudRepo = remember { HudDataRepository(context, sshManager) }
     val c3Ip = remember { sshManager.connectedHost }
 
     var camera by remember { mutableStateOf(CameraType.ROAD) }
     var error by remember { mutableStateOf<String?>(null) }
     var isStarting by remember { mutableStateOf(true) }
     var frameBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var hudData by remember { mutableStateOf<HudData?>(null) }
+    var showHud by remember { mutableStateOf(true) }  // HUD开关
     var fps by remember { mutableIntStateOf(0) }
     var retryKey by remember { mutableIntStateOf(0) }
 
-    // 启动 C3 端 MJPEG 服务器
+    // 启动 C3 端 MJPEG 服务器 + HUD服务器
     LaunchedEffect(camera, retryKey) {
         if (c3Ip.isNullOrBlank()) {
             error = "无法获取 C3 设备 IP 地址\n请确认已通过 SSH 连接到 C3"
@@ -75,6 +81,7 @@ fun VideoScreen(
         isStarting = true
         error = null
         frameBitmap = null
+        hudData = null
 
         Log.d("VideoScreen", "Starting MJPEG stream, camera=$camera, ip=$c3Ip")
         videoRepo.enableStream(camera.key).fold(
@@ -88,6 +95,13 @@ fun VideoScreen(
                 isStarting = false
             }
         )
+        
+        // 启动HUD服务器
+        Log.d("VideoScreen", "Starting HUD server")
+        hudRepo.startHudServer().fold(
+            onSuccess = { Log.d("VideoScreen", "HUD server started") },
+            onFailure = { Log.w("VideoScreen", "HUD server start failed: ${it.message}") }
+        )
     }
 
     // 离开页面时关闭流
@@ -95,7 +109,24 @@ fun VideoScreen(
         onDispose {
             CoroutineScope(Dispatchers.IO).launch {
                 runCatching { videoRepo.disableStream() }
+                runCatching { hudRepo.stopHudServer() }
             }
+        }
+    }
+
+    // 轮询HUD数据 (500ms = 2Hz)
+    LaunchedEffect(retryKey, isStarting) {
+        if (c3Ip.isNullOrBlank() || isStarting || error != null) return@LaunchedEffect
+        
+        delay(2000) // 等待HUD服务器启动
+        Log.d("VideoScreen", "Starting HUD poll")
+        
+        while (true) {
+            hudRepo.fetchHudData(c3Ip).fold(
+                onSuccess = { hudData = it },
+                onFailure = { Log.w("VideoScreen", "HUD fetch failed: ${it.message}") }
+            )
+            delay(500)
         }
     }
 
@@ -187,10 +218,13 @@ fun VideoScreen(
                 else -> {
                     VideoCard(
                         bitmap = frameBitmap,
+                        hudData = if (showHud) hudData else null,
                         camera = camera,
                         isStarting = isStarting,
                         fps = fps,
-                        c3Ip = c3Ip
+                        c3Ip = c3Ip,
+                        showHud = showHud,
+                        onToggleHud = { showHud = !showHud }
                     )
                 }
             }
@@ -269,10 +303,13 @@ private fun CameraSelector(
 @Composable
 private fun VideoCard(
     bitmap: Bitmap?,
+    hudData: HudData?,
     camera: CameraType,
     isStarting: Boolean,
     fps: Int,
-    c3Ip: String
+    c3Ip: String,
+    showHud: Boolean,
+    onToggleHud: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -295,6 +332,14 @@ private fun VideoCard(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )
+                
+                // HUD叠加层
+                if (hudData != null) {
+                    HudOverlay(
+                        hudData = hudData,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 // FPS 指示器
                 Surface(
@@ -311,6 +356,35 @@ private fun VideoCard(
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
+                }
+                
+                // HUD开关按钮
+                Surface(
+                    color = Color(0xAA000000),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .clickable { onToggleHud() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            if (showHud) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = "切换HUD",
+                            tint = if (showHud) Green500 else Slate400,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "HUD",
+                            color = if (showHud) Green500 else Slate400,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
 
                 // 摄像头标签
