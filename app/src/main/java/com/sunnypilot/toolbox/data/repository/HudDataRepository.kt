@@ -73,9 +73,9 @@ class HudDataRepository(
             // 2. 启动服务器
             val startCmd = buildString {
                 append("pkill -f hud_data_server 2>/dev/null; ")
-                append("cd /data/openpilot && . /usr/local/venv/bin/activate && ")
+                append("cd /data/openpilot && ")
                 append("export PYTHONPATH=/data/openpilot && ")
-                append("nohup python $REMOTE_SCRIPT --port $HUD_PORT ")
+                append("nohup python3 $REMOTE_SCRIPT --port $HUD_PORT ")
                 append("> $LOG_DIR/hud_data_server.log 2>&1 & echo started")
             }
             

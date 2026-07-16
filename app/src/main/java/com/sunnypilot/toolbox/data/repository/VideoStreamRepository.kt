@@ -48,9 +48,9 @@ class VideoStreamRepository(
         val cameraArg = if (camera == "wideRoad") "wideRoad" else "road"
         val startCmd = buildString {
             append("pkill -f mjpeg_stream 2>/dev/null; ")
-            append("cd $OPENPILOT && . /usr/local/venv/bin/activate && ")
+            append("cd $OPENPILOT && ")
             append("export PYTHONPATH=$OPENPILOT && ")
-            append("nohup python $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT ")
+            append("nohup python3 $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT ")
             append("> $LOG_DIR/mjpeg_stream.log 2>&1 & echo started")
         }
         return sshManager.executeCommand(startCmd).map { }
