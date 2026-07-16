@@ -138,7 +138,7 @@ class FrameGrabber:
 
     def stop(self):
         self._running = False
-        self.sock.close()
+        # cereal SubSocket 不需要显式关闭
 
 
 # 全局实例 (由 main 创建)
