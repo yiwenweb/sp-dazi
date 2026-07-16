@@ -43,7 +43,8 @@ class HudDataRepository(
 ) {
     companion object {
         private const val TAG = "HudDataRepository"
-        private const val REMOTE_SCRIPT = "/data/hud_data_server.py"
+        private const val REMOTE_SCRIPT = "/data/spapp/spyl/hud_data_server.py"
+        private const val LOG_DIR = "/data/spapp/spyl/log"
         private const val HUD_PORT = 5003
     }
     
@@ -60,6 +61,9 @@ class HudDataRepository(
     /** 启动C3端HUD数据服务器 */
     suspend fun startHudServer(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            // 0. 确保目录存在
+            sshManager.executeCommand("mkdir -p /data/spapp/spyl/log")
+            
             // 1. 检查脚本是否已部署
             val deployed = isScriptDeployed().getOrDefault(false)
             if (!deployed) {
@@ -72,7 +76,7 @@ class HudDataRepository(
                 append("cd /data/openpilot && . /usr/local/venv/bin/activate && ")
                 append("export PYTHONPATH=/data/openpilot && ")
                 append("nohup python $REMOTE_SCRIPT --port $HUD_PORT ")
-                append("> /tmp/hud_data_server.log 2>&1 & echo started")
+                append("> $LOG_DIR/hud_data_server.log 2>&1 & echo started")
             }
             
             sshManager.executeCommand(startCmd).map { }

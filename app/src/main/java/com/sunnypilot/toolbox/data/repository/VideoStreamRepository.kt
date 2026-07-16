@@ -21,13 +21,17 @@ class VideoStreamRepository(
 ) {
     companion object {
         private const val TAG = "VideoStreamRepository"
-        const val REMOTE_SCRIPT = "/data/mjpeg_stream.py"
+        const val REMOTE_SCRIPT = "/data/spapp/spyl/mjpeg_stream.py"
+        const val LOG_DIR = "/data/spapp/spyl/log"
         const val MJPEG_PORT = 5002
         private const val OPENPILOT = "/data/openpilot"
     }
 
     /** 开启 C3 端摄像头流 + 部署 MJPEG 服务器 */
     suspend fun enableStream(camera: String = "road"): Result<Unit> {
+        // 0. 确保目录存在
+        sshManager.executeCommand("mkdir -p /data/spapp/spyl/log")
+        
         // 1. 开启 stream_encoderd (产生 H264 帧)
         val valStr = "1"
         val enableCmd = "echo -n '$valStr' > /data/params/d/WebrtcStreamEnabled && " +
@@ -47,7 +51,7 @@ class VideoStreamRepository(
             append("cd $OPENPILOT && . /usr/local/venv/bin/activate && ")
             append("export PYTHONPATH=$OPENPILOT && ")
             append("nohup python $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT ")
-            append("> /tmp/mjpeg_stream.log 2>&1 & echo started")
+            append("> $LOG_DIR/mjpeg_stream.log 2>&1 & echo started")
         }
         return sshManager.executeCommand(startCmd).map { }
     }
