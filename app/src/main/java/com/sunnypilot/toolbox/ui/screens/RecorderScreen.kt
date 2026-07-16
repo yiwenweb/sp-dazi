@@ -629,12 +629,12 @@ private fun VideoGridView(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
-            .padding(12.dp)
+            .padding(8.dp)
     ) {
         segments.chunked(2).forEach { rowSegments ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 rowSegments.forEach { seg ->
                     VideoGridItem(
@@ -650,7 +650,7 @@ private fun VideoGridView(
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
         }
     }
 }
@@ -691,47 +691,49 @@ private fun VideoGridItem(
 ) {
     val ready = segment.hasOverlay && segment.hasVideo
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) Teal50 else Slate50
         ),
         modifier = modifier.clickable(onClick = onClick)
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = if (ready) Icons.Default.VideoFile else Icons.Outlined.VideoFile,
                 contentDescription = null,
                 tint = if (ready) Teal500 else Slate400,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(36.dp)
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = segment.segmentId.takeLast(12),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = Slate900,
                 maxLines = 1,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                fontSize = 11.sp
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Row(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 StatusChip("视频", segment.hasVideo || segment.cachedVideo)
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(3.dp))
                 StatusChip("数据", segment.hasOverlay || segment.cachedOverlay)
             }
             if (!segment.hasOverlay && !segment.cachedOverlay) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(3.dp))
                 TextButton(
                     onClick = onPreprocess,
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier.height(26.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
-                    Text("预处理", style = MaterialTheme.typography.labelSmall, color = Teal500)
+                    Text("预处理", style = MaterialTheme.typography.labelSmall, color = Teal500, fontSize = 10.sp)
                 }
             }
         }
