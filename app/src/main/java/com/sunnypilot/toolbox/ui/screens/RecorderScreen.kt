@@ -581,9 +581,9 @@ private fun VideoListPanel(
                 }
             } else {
                 when (viewMode) {
-                    ViewMode.LIST -> VideoListView(segments, selected, onSelect, onPreprocess)
-                    ViewMode.GRID -> VideoGridView(segments, selected, onSelect, onPreprocess)
-                    ViewMode.COMPACT -> VideoCompactView(segments, selected, onSelect, onPreprocess)
+                    ViewMode.LIST -> VideoListView(segments, selected, onSelect, onPreprocess, modifier = Modifier.weight(1f))
+                    ViewMode.GRID -> VideoGridView(segments, selected, onSelect, onPreprocess, modifier = Modifier.weight(1f))
+                    ViewMode.COMPACT -> VideoCompactView(segments, selected, onSelect, onPreprocess, modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -595,12 +595,12 @@ private fun VideoListView(
     segments: List<SegmentSummary>,
     selected: String?,
     onSelect: (String) -> Unit,
-    onPreprocess: (String) -> Unit
+    onPreprocess: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .weight(1f)
             .verticalScroll(rememberScrollState())
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -621,13 +621,13 @@ private fun VideoGridView(
     segments: List<SegmentSummary>,
     selected: String?,
     onSelect: (String) -> Unit,
-    onPreprocess: (String) -> Unit
+    onPreprocess: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .weight(1f)
             .verticalScroll(scrollState)
             .padding(12.dp)
     ) {
@@ -660,12 +660,12 @@ private fun VideoCompactView(
     segments: List<SegmentSummary>,
     selected: String?,
     onSelect: (String) -> Unit,
-    onPreprocess: (String) -> Unit
+    onPreprocess: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .weight(1f)
             .verticalScroll(rememberScrollState())
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
