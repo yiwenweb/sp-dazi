@@ -732,9 +732,18 @@ selfdrive/ui/sunnypilot/qt/offroad/settings/sunny_features_panel.cc
 
 | 日期 | 改动 | 提交/文件 |
 |------|------|----------|
-| 2026-07-16 | 实现C3摄像头+HUD叠加功能 | `VideoScreen.kt`, `VideoStreamRepository.kt`, `HudDataRepository.kt`, `HudOverlay.kt`, `hud_data_server.py`, `build.gradle.kts`, `libs.versions.toml` |
-| 2026-07-16 | 修复RecorderScreen.kt的Modifier.weight作用域错误 | `RecorderScreen.kt` |
-| 2026-07-16 | 修复FileScreen.kt编译错误：删除重复代码块 | `FileScreen.kt` |
+| 2026-07-17 | 添加视频流诊断功能：设置按钮、服务状态测试、脚本重新部署 | `VideoScreen.kt` (commit efa31b7) |
+| 2026-07-17 | 优化文件网格视图显示密度：每行从3个增加到4个 | `FileScreen.kt` (commit b84f887) |
+| 2026-07-17 | 修复SettingsScreen的XML标签语法错误 | `SettingsScreen.kt` (commit 11c8d4b) |
+| 2026-07-17 | 修复mjpeg_stream.py的SubSocket.close()错误 | `mjpeg_stream.py` (commit 42ab3af) |
+| 2026-07-17 | 添加SSH密钥文件到gitignore | `.gitignore` (commit 123ee99) |
+| 2026-07-16 | 修改脚本部署路径到/data/spapp/spyl/，日志到/data/spapp/spyl/log/ | `VideoStreamRepository.kt`, `HudDataRepository.kt` (commit 2ff7154) |
+| 2026-07-16 | 更新功能总结文档：添加C3摄像头HUD传输方案 | `SunnyPilotToolbox功能总结.md`, `C3摄像头HUD传输方案.md` (commit dea94cd) |
+| 2026-07-16 | 实现C3摄像头+HUD叠加功能 | `VideoScreen.kt`, `VideoStreamRepository.kt`, `HudDataRepository.kt`, `HudOverlay.kt`, `hud_data_server.py`, `build.gradle.kts`, `libs.versions.toml` (commit d9ef84c) |
+| 2026-07-16 | 修复RecorderScreen.kt的Modifier.weight作用域错误 | `RecorderScreen.kt` (commit 6f2baff) |
+| 2026-07-16 | 修复FileScreen.kt编译错误：删除重复代码块 | `FileScreen.kt` (commit 9891804) |
+| 2026-07-16 | 优化网格视图间距，提高显示密度（RecorderScreen/FileScreen） | `RecorderScreen.kt`, `FileScreen.kt` (commit 3f724ab) |
+| 2026-07-16 | 驾驶设置模块现代化改版：卡片网格布局、Material Design风格 | `SettingsScreen.kt` (commit 55c42f4) |
 | 2026-07-16 | 优化Web管理界面：移动端响应式、修复文件上传、增强终端功能 | `QuickCommandWebServer.kt`, `WebManagerServer.kt` |
 | 2026-07-16 | 记录仪预览新增排序/查看/筛选功能 | `RecorderScreen.kt` |
 | 2026-07-16 | 文件管理新增排序/查看/筛选功能 | `FileScreen.kt` |

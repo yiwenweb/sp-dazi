@@ -333,7 +333,7 @@ private fun CameraSelector(
             onDismiss = { showDiagnostics = false }
         )
     }
-}}
+}
 
 @Composable
 private fun VideoCard(
