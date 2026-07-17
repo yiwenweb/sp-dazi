@@ -181,7 +181,7 @@ fun TerminalScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .weight(1f)  // 占据所有可用空间
                     .clip(RoundedCornerShape(24.dp))
                     .background(Color(0xFF0F172A))
                     .padding(16.dp)
@@ -318,7 +318,7 @@ fun TerminalScreen(
                 // 快捷按钮
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TerminalButton(
                         text = "粘贴",
@@ -375,27 +375,18 @@ fun TerminalScreen(
                         bgColor = Amber100,
                         onClick = { terminalText = "" }
                     )
-                }
-
-                // 实时输入开关
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "实时输入（逐字发送）",
-                        color = Slate600,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Switch(
-                        checked = realTimeInput,
-                        onCheckedChange = { realTimeInput = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Teal500,
-                            checkedTrackColor = Teal100
+                    // 实时输入按钮
+                    IconButton(
+                        onClick = { realTimeInput = !realTimeInput },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Keyboard,
+                            contentDescription = "实时输入",
+                            tint = if (realTimeInput) Teal500 else Slate400,
+                            modifier = Modifier.size(20.dp)
                         )
-                    )
+                    }
                 }
             }
         }
