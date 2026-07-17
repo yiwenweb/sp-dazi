@@ -557,20 +557,31 @@ private fun DiagnosticsDialog(
                         scope.launch {
                             val result = StringBuilder()
                             
-                            // 检查服务进程
-                            sshManager.executeCommand("pgrep -af mjpeg_stream").fold(
+                            // 1. 检查服务进程
+                            sshManager.executeCommand("pgrep -f mjpeg_stream").fold(
                                 onSuccess = { output ->
-                                    if (output.trim().isEmpty()) {
+                                    val pids = output.trim()
+                                    if (pids.isEmpty()) {
                                         result.append("❌ MJPEG 服务未运行\n")
                                     } else {
-                                        result.append("✓ MJPEG 服务进程: ${output.trim().take(50)}...\n")
+                                        result.append("✓ MJPEG 服务运行中 (PID: $pids)\n")
+                                        
+                                        // 获取完整命令行
+                                        sshManager.executeCommand("ps aux | grep mjpeg_stream | grep -v grep").fold(
+                                            onSuccess = { ps -> 
+                                                result.append("  进程: ${ps.trim().take(60)}...\n")
+                                            },
+                                            onFailure = { }
+                                        )
                                     }
                                 },
-                                onFailure = { result.append("❌ 无法检查进程: ${it.message}\n") }
+                                onFailure = { e -> 
+                                    result.append("❌ 无法检测进程: ${e.message}\n")
+                                }
                             )
                             
-                            // 检查端口
-                            sshManager.executeCommand("netstat -tuln | grep 5002").fold(
+                            // 2. 检查端口 (使用 ss 命令，更可靠)
+                            sshManager.executeCommand("ss -tuln | grep :5002 || netstat -tuln 2>/dev/null | grep :5002").fold(
                                 onSuccess = { output ->
                                     if (output.contains("5002")) {
                                         result.append("✓ 端口 5002 正在监听\n")
@@ -578,19 +589,41 @@ private fun DiagnosticsDialog(
                                         result.append("❌ 端口 5002 未监听\n")
                                     }
                                 },
-                                onFailure = { result.append("❌ 无法检查端口\n") }
+                                onFailure = { e -> 
+                                    result.append("⚠ 无法检查端口 (${e.message})\n")
+                                }
                             )
                             
-                            // 测试健康检查接口
-                            videoRepo.isStreamRunning().fold(
-                                onSuccess = { running ->
-                                    if (running) {
-                                        result.append("✓ 服务响应正常\n")
+                            // 3. HTTP 健康检查
+                            val healthUrl = videoRepo.healthUrl(c3Ip)
+                            sshManager.executeCommand("curl -s -m 2 $healthUrl").fold(
+                                onSuccess = { health ->
+                                    if (health.contains("ok") || health.contains("alive")) {
+                                        result.append("✓ HTTP 服务响应正常\n")
+                                        result.append("  响应: ${health.trim().take(50)}\n")
                                     } else {
-                                        result.append("⚠ 服务已启动但无法获取帧数据\n可能原因: stream_encoderd 未运行或车辆未启动\n")
+                                        result.append("⚠ HTTP 服务异常响应\n")
+                                        result.append("  响应: ${health.trim().take(50)}\n")
                                     }
                                 },
-                                onFailure = { result.append("❌ 服务无响应: ${it.message}\n") }
+                                onFailure = { e -> 
+                                    result.append("❌ HTTP 服务无响应: ${e.message}\n")
+                                }
+                            )
+                            
+                            // 4. 测试实际帧获取
+                            val frameUrl = videoRepo.frameUrl(c3Ip)
+                            sshManager.executeCommand("curl -s -I -m 2 $frameUrl | head -n 1").fold(
+                                onSuccess = { status ->
+                                    if (status.contains("200")) {
+                                        result.append("✓ 视频帧接口可访问\n")
+                                    } else {
+                                        result.append("⚠ 视频帧接口返回: ${status.trim()}\n")
+                                    }
+                                },
+                                onFailure = { e -> 
+                                    result.append("❌ 视频帧接口不可访问: ${e.message}\n")
+                                }
                             )
                             
                             videoResult = result.toString()
@@ -649,20 +682,31 @@ private fun DiagnosticsDialog(
                         scope.launch {
                             val result = StringBuilder()
                             
-                            // 检查服务进程
-                            sshManager.executeCommand("pgrep -af hud_data_server").fold(
+                            // 1. 检查服务进程
+                            sshManager.executeCommand("pgrep -f hud_data_server").fold(
                                 onSuccess = { output ->
-                                    if (output.trim().isEmpty()) {
+                                    val pids = output.trim()
+                                    if (pids.isEmpty()) {
                                         result.append("❌ HUD 服务未运行\n")
                                     } else {
-                                        result.append("✓ HUD 服务进程: ${output.trim().take(50)}...\n")
+                                        result.append("✓ HUD 服务运行中 (PID: $pids)\n")
+                                        
+                                        // 获取完整命令行
+                                        sshManager.executeCommand("ps aux | grep hud_data_server | grep -v grep").fold(
+                                            onSuccess = { ps -> 
+                                                result.append("  进程: ${ps.trim().take(60)}...\n")
+                                            },
+                                            onFailure = { }
+                                        )
                                     }
                                 },
-                                onFailure = { result.append("❌ 无法检查进程: ${it.message}\n") }
+                                onFailure = { e -> 
+                                    result.append("❌ 无法检测进程: ${e.message}\n")
+                                }
                             )
                             
-                            // 检查端口
-                            sshManager.executeCommand("netstat -tuln | grep 5003").fold(
+                            // 2. 检查端口
+                            sshManager.executeCommand("ss -tuln | grep :5003 || netstat -tuln 2>/dev/null | grep :5003").fold(
                                 onSuccess = { output ->
                                     if (output.contains("5003")) {
                                         result.append("✓ 端口 5003 正在监听\n")
@@ -670,17 +714,47 @@ private fun DiagnosticsDialog(
                                         result.append("❌ 端口 5003 未监听\n")
                                     }
                                 },
-                                onFailure = { result.append("❌ 无法检查端口\n") }
+                                onFailure = { e -> 
+                                    result.append("⚠ 无法检查端口 (${e.message})\n")
+                                }
                             )
                             
-                            // 测试 HUD 数据获取
-                            hudRepo.fetchHudData(c3Ip).fold(
-                                onSuccess = { data ->
-                                    result.append("✓ HUD 数据获取成功\n")
-                                    result.append("  速度: ${data.speed} km/h\n")
-                                    result.append("  档位: ${data.gear}\n")
+                            // 3. HTTP 健康检查
+                            sshManager.executeCommand("curl -s -m 2 http://$c3Ip:5003/health").fold(
+                                onSuccess = { health ->
+                                    if (health.contains("ok") || health.contains("alive")) {
+                                        result.append("✓ HTTP 服务响应正常\n")
+                                    } else {
+                                        result.append("⚠ HTTP 服务异常: ${health.trim()}\n")
+                                    }
                                 },
-                                onFailure = { result.append("❌ HUD 数据获取失败: ${it.message}\n") }
+                                onFailure = { e -> 
+                                    result.append("❌ HTTP 服务无响应: ${e.message}\n")
+                                }
+                            )
+                            
+                            // 4. 测试 HUD 数据获取
+                            sshManager.executeCommand("curl -s -m 2 http://$c3Ip:5003/hud").fold(
+                                onSuccess = { json ->
+                                    if (json.contains("speed") || json.contains("gear")) {
+                                        result.append("✓ HUD 数据获取成功\n")
+                                        // 尝试解析显示关键数据
+                                        if (json.contains("\"speed\":")) {
+                                            val speed = json.substringAfter("\"speed\":").substringBefore(",").trim()
+                                            result.append("  速度: $speed km/h\n")
+                                        }
+                                        if (json.contains("\"gear\":")) {
+                                            val gear = json.substringAfter("\"gear\":\"").substringBefore("\"")
+                                            result.append("  档位: $gear\n")
+                                        }
+                                    } else {
+                                        result.append("⚠ HUD 数据格式异常\n")
+                                        result.append("  响应: ${json.take(100)}\n")
+                                    }
+                                },
+                                onFailure = { e -> 
+                                    result.append("❌ HUD 数据获取失败: ${e.message}\n")
+                                }
                             )
                             
                             hudResult = result.toString()
