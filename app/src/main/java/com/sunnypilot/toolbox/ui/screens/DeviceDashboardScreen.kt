@@ -41,7 +41,7 @@ fun DeviceDashboardScreen(
     fun refreshOfflineState() {
         scope.launch {
             sshManager.executeCommand(
-                "python -c \"from openpilot.common.params import Params; print(Params().get_bool('OffroadMode'))\""
+                "python -c \"from openpilot.common.params import Params; print(Params().get_bool('Offroad'))\""
             ).onSuccess { output ->
                 isOfflineMode = output.trim() == "True"
             }
@@ -219,13 +219,19 @@ fun DeviceDashboardScreen(
                                 modifier = Modifier.weight(1f),
                                 onClick = {
                                     scope.launch {
+                                        // 使用 Offroad 参数控制离线模式
                                         val cmd = if (isOfflineMode) {
-                                            "python -c \"from openpilot.common.params import Params; Params().remove('OffroadMode')\""
+                                            // 恢复正常：删除 Offroad 参数，重启 openpilot
+                                            "python -c \"from openpilot.common.params import Params; Params().remove('Offroad')\" && sudo systemctl restart comma"
                                         } else {
-                                            "python -c \"from openpilot.common.params import Params; Params().put_bool('OffroadMode', True)\""
+                                            // 进入离线模式：设置 Offroad 参数，重启 openpilot
+                                            "python -c \"from openpilot.common.params import Params; Params().put_bool('Offroad', True)\" && sudo systemctl restart comma"
                                         }
-                                        sshManager.executeCommand(cmd)
-                                        refreshOfflineState()
+                                        sshManager.executeCommand(cmd).onSuccess {
+                                            // 等待服务重启后刷新状态
+                                            kotlinx.coroutines.delay(3000)
+                                            refreshOfflineState()
+                                        }
                                     }
                                 }
                             )
@@ -360,11 +366,14 @@ fun DeviceDashboardScreen(
     if (showRebootDialog) {
         ConfirmDialog(
             title = "确认重启",
-            text = "确定要立即重启 C3 吗？",
+            text = "确定要立即重启 C3 吗？\n\n将先停止 openpilot 服务再重启系统。",
             confirm = "重启",
             onConfirm = {
                 showRebootDialog = false
-                scope.launch { sshManager.executeCommand("sudo reboot") }
+                scope.launch {
+                    // 优雅关闭 openpilot 再重启
+                    sshManager.executeCommand("sudo systemctl stop comma; sleep 2; sudo reboot")
+                }
             },
             onDismiss = { showRebootDialog = false }
         )
@@ -373,13 +382,15 @@ fun DeviceDashboardScreen(
     if (showShutdownDialog) {
         ConfirmDialog(
             title = "确认关机",
-            text = "确定要立即关闭 C3 吗？",
+            text = "确定要立即关闭 C3 吗？\n\n将先停止 openpilot 服务再关机。",
             confirm = "关机",
             onConfirm = {
                 showShutdownDialog = false
                 scope.launch {
-                    sshManager.executeCommand("sudo poweroff")
-                    // 等待命令发送完成后再断开连接，确保 C3 收到关机指令
+                    // 优雅关闭 openpilot 再关机
+                    sshManager.executeCommand("sudo systemctl stop comma; sleep 2; sudo poweroff")
+                    // 等待命令发送完成后再断开连接
+                    kotlinx.coroutines.delay(500)
                     sshManager.disconnect()
                     onDisconnected()
                 }
