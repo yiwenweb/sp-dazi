@@ -194,7 +194,8 @@ fun VideoScreen(
                     frameBitmap = null
                     retryKey++
                 }
-            }
+            },
+            sshManager = sshManager
         )
 
         Spacer(Modifier.height(16.dp))
@@ -261,7 +262,8 @@ private fun fetchJpegFrame(urlStr: String): Bitmap? {
 @Composable
 private fun CameraSelector(
     selected: CameraType,
-    onSelect: (CameraType) -> Unit
+    onSelect: (CameraType) -> Unit,
+    sshManager: SshManager
 ) {
     var showDiagnostics by remember { mutableStateOf(false) }
     
