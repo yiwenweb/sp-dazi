@@ -7,7 +7,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -330,6 +332,7 @@ private fun CameraSelector(
     // 诊断对话框
     if (showDiagnostics) {
         DiagnosticsDialog(
+            sshManager = sshManager,
             onDismiss = { showDiagnostics = false }
         )
     }
@@ -493,11 +496,11 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
 
 @Composable
 private fun DiagnosticsDialog(
+    sshManager: SshManager,
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val sshManager = remember { SshManager.getInstance(context) }
     val videoRepo = remember { VideoStreamRepository(context, sshManager) }
     val hudRepo = remember { HudDataRepository(context, sshManager) }
     val c3Ip = remember { sshManager.connectedHost ?: "未连接" }
