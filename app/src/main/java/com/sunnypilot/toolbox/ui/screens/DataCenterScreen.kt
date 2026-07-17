@@ -514,17 +514,25 @@ private fun AdsMileagePanel(
                     Text("ADS 里程", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Slate900)
                     Text("辅助驾驶与人工驾驶里程分布", fontSize = 12.sp, color = Slate500)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = onExport) {
-                        Icon(Icons.Default.Upload, contentDescription = "导出", modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("导出", fontSize = 13.sp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(onClick = onExport, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.Upload,
+                            contentDescription = "导出",
+                            tint = Teal500,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(onClick = onImport) {
-                        Icon(Icons.Default.Download, contentDescription = "导入", modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("导入", fontSize = 13.sp)
+                    IconButton(onClick = onImport, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.Download,
+                            contentDescription = "导入",
+                            tint = Blue500,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
