@@ -261,44 +261,79 @@ private fun CameraSelector(
     selected: CameraType,
     onSelect: (CameraType) -> Unit
 ) {
+    var showDiagnostics by remember { mutableStateOf(false) }
+    
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Slate100)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        CameraType.entries.forEach { c ->
-            val isSel = c == selected
-            Surface(
-                shape = RoundedCornerShape(9.dp),
-                color = if (isSel) Teal500 else Color.Transparent,
-                modifier = Modifier.weight(1f)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelect(c) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+        // 摄像头切换按钮
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Slate100)
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            CameraType.entries.forEach { c ->
+                val isSel = c == selected
+                Surface(
+                    shape = RoundedCornerShape(9.dp),
+                    color = if (isSel) Teal500 else Color.Transparent,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        c.title,
-                        color = if (isSel) Color.White else Slate700,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        c.desc,
-                        color = if (isSel) Color(0xFFCCFBF1) else Slate400,
-                        fontSize = 11.sp
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(c) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            c.title,
+                            color = if (isSel) Color.White else Slate700,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            c.desc,
+                            color = if (isSel) Color(0xFFCCFBF1) else Slate400,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }
+        
+        // 设置/诊断按钮
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Slate100,
+            modifier = Modifier.clickable { showDiagnostics = true }
+        ) {
+            Box(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = "诊断设置",
+                    tint = Slate700,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
     }
-}
+    
+    // 诊断对话框
+    if (showDiagnostics) {
+        DiagnosticsDialog(
+            onDismiss = { showDiagnostics = false }
+        )
+    }
+}}
 
 @Composable
 private fun VideoCard(
@@ -453,5 +488,345 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
         ) {
             Text("重试", color = Color.White)
         }
+    }
+}
+
+@Composable
+private fun DiagnosticsDialog(
+    onDismiss: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val sshManager = remember { SshManager.getInstance(context) }
+    val videoRepo = remember { VideoStreamRepository(context, sshManager) }
+    val hudRepo = remember { HudDataRepository(context, sshManager) }
+    val c3Ip = remember { sshManager.connectedHost ?: "未连接" }
+    
+    var testingVideo by remember { mutableStateOf(false) }
+    var testingHud by remember { mutableStateOf(false) }
+    var redeployingScripts by remember { mutableStateOf(false) }
+    var videoResult by remember { mutableStateOf<String?>(null) }
+    var hudResult by remember { mutableStateOf<String?>(null) }
+    var redeployResult by remember { mutableStateOf<String?>(null) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.BugReport,
+                    contentDescription = null,
+                    tint = Teal500,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("视频流诊断", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // C3 IP 信息
+                InfoRow(label = "C3 地址", value = c3Ip)
+                Spacer(Modifier.height(12.dp))
+                Divider(color = Slate200)
+                Spacer(Modifier.height(16.dp))
+                
+                // 测试视频流服务
+                Text("1. 测试视频流服务", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Slate900)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "检查 MJPEG 服务器是否正常运行，端口 5002 是否可访问",
+                    fontSize = 12.sp,
+                    color = Slate500,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        testingVideo = true
+                        videoResult = null
+                        scope.launch {
+                            val result = StringBuilder()
+                            
+                            // 检查服务进程
+                            sshManager.executeCommand("pgrep -af mjpeg_stream").fold(
+                                onSuccess = { output ->
+                                    if (output.trim().isEmpty()) {
+                                        result.append("❌ MJPEG 服务未运行\n")
+                                    } else {
+                                        result.append("✓ MJPEG 服务进程: ${output.trim().take(50)}...\n")
+                                    }
+                                },
+                                onFailure = { result.append("❌ 无法检查进程: ${it.message}\n") }
+                            )
+                            
+                            // 检查端口
+                            sshManager.executeCommand("netstat -tuln | grep 5002").fold(
+                                onSuccess = { output ->
+                                    if (output.contains("5002")) {
+                                        result.append("✓ 端口 5002 正在监听\n")
+                                    } else {
+                                        result.append("❌ 端口 5002 未监听\n")
+                                    }
+                                },
+                                onFailure = { result.append("❌ 无法检查端口\n") }
+                            )
+                            
+                            // 测试健康检查接口
+                            videoRepo.isStreamRunning().fold(
+                                onSuccess = { running ->
+                                    if (running) {
+                                        result.append("✓ 服务响应正常\n")
+                                    } else {
+                                        result.append("⚠ 服务已启动但无法获取帧数据\n可能原因: stream_encoderd 未运行或车辆未启动\n")
+                                    }
+                                },
+                                onFailure = { result.append("❌ 服务无响应: ${it.message}\n") }
+                            )
+                            
+                            videoResult = result.toString()
+                            testingVideo = false
+                        }
+                    },
+                    enabled = !testingVideo,
+                    colors = ButtonDefaults.buttonColors(containerColor = Blue500),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (testingVideo) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (testingVideo) "测试中..." else "开始测试")
+                }
+                
+                if (videoResult != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Slate50
+                    ) {
+                        Text(
+                            videoResult!!,
+                            fontSize = 11.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = Slate700,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                Divider(color = Slate200)
+                Spacer(Modifier.height(16.dp))
+                
+                // 测试 HUD 服务
+                Text("2. 测试 HUD 数据服务", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Slate900)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "检查 HUD 数据服务器是否正常运行，端口 5003 是否可访问",
+                    fontSize = 12.sp,
+                    color = Slate500,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        testingHud = true
+                        hudResult = null
+                        scope.launch {
+                            val result = StringBuilder()
+                            
+                            // 检查服务进程
+                            sshManager.executeCommand("pgrep -af hud_data_server").fold(
+                                onSuccess = { output ->
+                                    if (output.trim().isEmpty()) {
+                                        result.append("❌ HUD 服务未运行\n")
+                                    } else {
+                                        result.append("✓ HUD 服务进程: ${output.trim().take(50)}...\n")
+                                    }
+                                },
+                                onFailure = { result.append("❌ 无法检查进程: ${it.message}\n") }
+                            )
+                            
+                            // 检查端口
+                            sshManager.executeCommand("netstat -tuln | grep 5003").fold(
+                                onSuccess = { output ->
+                                    if (output.contains("5003")) {
+                                        result.append("✓ 端口 5003 正在监听\n")
+                                    } else {
+                                        result.append("❌ 端口 5003 未监听\n")
+                                    }
+                                },
+                                onFailure = { result.append("❌ 无法检查端口\n") }
+                            )
+                            
+                            // 测试 HUD 数据获取
+                            hudRepo.fetchHudData(c3Ip).fold(
+                                onSuccess = { data ->
+                                    result.append("✓ HUD 数据获取成功\n")
+                                    result.append("  速度: ${data.speed} km/h\n")
+                                    result.append("  档位: ${data.gear}\n")
+                                },
+                                onFailure = { result.append("❌ HUD 数据获取失败: ${it.message}\n") }
+                            )
+                            
+                            hudResult = result.toString()
+                            testingHud = false
+                        }
+                    },
+                    enabled = !testingHud,
+                    colors = ButtonDefaults.buttonColors(containerColor = Blue500),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (testingHud) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (testingHud) "测试中..." else "开始测试")
+                }
+                
+                if (hudResult != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Slate50
+                    ) {
+                        Text(
+                            hudResult!!,
+                            fontSize = 11.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = Slate700,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                Divider(color = Slate200)
+                Spacer(Modifier.height(16.dp))
+                
+                // 重新部署脚本
+                Text("3. 重新部署脚本", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Slate900)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "从 App 重新上传 Python 脚本到 C3 设备（覆盖旧版本）",
+                    fontSize = 12.sp,
+                    color = Slate500,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        redeployingScripts = true
+                        redeployResult = null
+                        scope.launch {
+                            val result = StringBuilder()
+                            
+                            try {
+                                // 停止旧服务
+                                sshManager.executeCommand("pkill -f mjpeg_stream; pkill -f hud_data_server")
+                                delay(500)
+                                
+                                // 重新部署 MJPEG 脚本
+                                val mjpegContent = context.assets.open("mjpeg_stream.py")
+                                    .bufferedReader().use { it.readText() }
+                                sshManager.writeTextFile(
+                                    "/data/spapp/spyl/mjpeg_stream.py",
+                                    mjpegContent
+                                ).fold(
+                                    onSuccess = { result.append("✓ mjpeg_stream.py 已更新\n") },
+                                    onFailure = { result.append("❌ mjpeg_stream.py 更新失败: ${it.message}\n") }
+                                )
+                                
+                                // 重新部署 HUD 脚本
+                                val hudContent = context.assets.open("hud_data_server.py")
+                                    .bufferedReader().use { it.readText() }
+                                sshManager.writeTextFile(
+                                    "/data/spapp/spyl/hud_data_server.py",
+                                    hudContent
+                                ).fold(
+                                    onSuccess = { result.append("✓ hud_data_server.py 已更新\n") },
+                                    onFailure = { result.append("❌ hud_data_server.py 更新失败: ${it.message}\n") }
+                                )
+                                
+                                result.append("\n✓ 脚本部署完成！\n请返回重新启动视频流")
+                                
+                            } catch (e: Exception) {
+                                result.append("❌ 部署失败: ${e.message}\n")
+                            }
+                            
+                            redeployResult = result.toString()
+                            redeployingScripts = false
+                        }
+                    },
+                    enabled = !redeployingScripts,
+                    colors = ButtonDefaults.buttonColors(containerColor = Amber500),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (redeployingScripts) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (redeployingScripts) "部署中..." else "重新部署")
+                }
+                
+                if (redeployResult != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Slate50
+                    ) {
+                        Text(
+                            redeployResult!!,
+                            fontSize = 11.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = Slate700,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭", color = Teal500)
+            }
+        },
+        modifier = Modifier.widthIn(max = 500.dp)
+    )
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, fontSize = 13.sp, color = Slate500)
+        Text(
+            value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = Slate900,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+        )
     }
 }
