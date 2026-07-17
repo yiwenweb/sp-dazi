@@ -106,8 +106,11 @@ fun QuickCommandsPanel(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 固定命令：抓取CAN信号
+                // 固定命令1：抓取CAN信号
                 FixedCanCaptureCard(onExecute = onExecute)
+                
+                // 固定命令2：替换UI
+                FixedReplaceUiCard(onExecute = onExecute)
                 
                 if (commands.isEmpty()) {
                     EmptyQuickCommandHint()
@@ -284,9 +287,82 @@ except Exception as e:
         )
     }
     
+    FixedCommandCard(
+        command = canCommand,
+        icon = Icons.Default.BugReport,
+        backgroundColor = Amber50,
+        iconTint = Amber600,
+        onExecute = onExecute
+    )
+}
+
+@Composable
+private fun FixedReplaceUiCard(
+    onExecute: (QuickCommand) -> Unit
+) {
+    val replaceUiCommand = remember {
+        QuickCommand(
+            id = -2L,
+            title = "替换UI",
+            command = """
+                echo "正在替换UI和参数文件..."
+                
+                # 1. 停止相关进程
+                echo "1. 停止管理进程..."
+                sudo pkill -f manager
+                
+                echo "2. 停止UI进程..."
+                sudo pkill -f "selfdrive/ui/ui"
+                
+                echo "3. 等待进程完全退出..."
+                sleep 3
+                
+                # 4. 替换二进制文件
+                echo "4. 替换UI二进制文件..."
+                if [ -f /data/panda_build/selfdrive/ui/ui ]; then
+                    cp /data/panda_build/selfdrive/ui/ui /data/openpilot/selfdrive/ui/ui
+                    echo "✓ UI文件替换成功"
+                else
+                    echo "❌ 源UI文件不存在: /data/panda_build/selfdrive/ui/ui"
+                fi
+                
+                echo "5. 替换params_pyx.so..."
+                if [ -f /data/panda_build/common/params_pyx.so ]; then
+                    cp /data/panda_build/common/params_pyx.so /data/openpilot/common/params_pyx.so
+                    echo "✓ params_pyx.so替换成功"
+                else
+                    echo "❌ 源文件不存在: /data/panda_build/common/params_pyx.so"
+                fi
+                
+                echo ""
+                echo "✓ 替换完成！"
+                echo "提示: 系统会在几秒后自动重启UI"
+            """.trimIndent(),
+            description = "从panda_build替换UI和参数",
+            sortOrder = -2
+        )
+    }
+    
+    FixedCommandCard(
+        command = replaceUiCommand,
+        icon = Icons.Default.SwapHoriz,
+        backgroundColor = Color(0xFFE0F2FE), // Sky50
+        iconTint = Color(0xFF0284C7), // Sky600
+        onExecute = onExecute
+    )
+}
+
+@Composable
+private fun FixedCommandCard(
+    command: QuickCommand,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    backgroundColor: Color,
+    iconTint: Color,
+    onExecute: (QuickCommand) -> Unit
+) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = Amber50,
+        color = backgroundColor,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -303,21 +379,21 @@ except Exception as e:
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.BugReport,
+                        imageVector = icon,
                         contentDescription = null,
-                        tint = Amber600,
+                        tint = iconTint,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Column {
                         Text(
-                            text = canCommand.title,
+                            text = command.title,
                             color = Slate900,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = canCommand.description,
+                            text = command.description,
                             color = Slate500,
                             fontSize = 11.sp,
                             maxLines = 1
@@ -325,7 +401,7 @@ except Exception as e:
                     }
                 }
                 IconButton(
-                    onClick = { onExecute(canCommand) },
+                    onClick = { onExecute(command) },
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
