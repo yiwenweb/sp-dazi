@@ -1,7 +1,6 @@
 package com.sunnypilot.toolbox.ui.screens
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -85,6 +84,7 @@ fun SettingsScreen(
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
 
     fun loadSettings() {
         scope.launch {
@@ -104,248 +104,350 @@ fun SettingsScreen(
         settings.groupBy { it.category ?: "其他" }
     }
 
-    // 分类展开状态
-    val expandedCategories = remember { mutableStateMapOf<String, Boolean>() }
-
     Box(modifier = modifier.fillMaxSize().background(Slate50)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // 现代化标题栏
-            Surface(
-                color = Color.White,
-                shadowElevation = 2.dp
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.Tune,
-                            contentDescription = null,
-                            tint = Teal500,
-                            modifier = Modifier.size(28.dp)
+        if (selectedCategory == null) {
+            // 主页：显示所有分类
+            CategoryListScreen(
+                grouped = grouped,
+                isLoading = isLoading,
+                error = error,
+                onCategoryClick = { category -> selectedCategory = category },
+                onRefresh = { loadSettings() }
+            )
+        } else {
+            // 分类详情页
+            CategoryDetailScreen(
+                category = selectedCategory!!,
+                settings = grouped[selectedCategory] ?: emptyList(),
+                repository = repository,
+                pendingKeys = pendingKeys,
+                onBack = { selectedCategory = null },
+                onPendingChange = { key, isPending ->
+                    pendingKeys = if (isPending) pendingKeys + key else pendingKeys - key
+                },
+                onSettingChanged = { loadSettings() }
+            )
+        }
+    }
+}
+
+// 分类列表主页
+@Composable
+private fun CategoryListScreen(
+    grouped: Map<String, List<C3SettingMeta>>,
+    isLoading: Boolean,
+    error: String?,
+    onCategoryClick: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 标题栏
+        Surface(color = Color.White, shadowElevation = 2.dp) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Tune,
+                        contentDescription = null,
+                        tint = Teal500,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "驾驶设置",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Slate900
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "驾驶设置",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Slate900
-                            )
-                            Text(
-                                "修改后立即同步到 C3",
-                                fontSize = 11.sp,
-                                color = Slate500
-                            )
-                        }
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = Teal500,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        } else {
-                            IconButton(onClick = { loadSettings() }) {
-                                Icon(
-                                    Icons.Filled.Refresh,
-                                    "刷新",
-                                    tint = Teal500
-                                )
-                            }
+                        Text(
+                            "点击分类查看详细设置",
+                            fontSize = 11.sp,
+                            color = Slate500
+                        )
+                    }
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            color = Teal500,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        IconButton(onClick = onRefresh) {
+                            Icon(Icons.Filled.Refresh, "刷新", tint = Teal500)
                         }
                     }
                 }
             }
+        }
 
-            if (error != null && settings.isEmpty()) {
-                Box(
-                    Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Filled.ErrorOutline,
-                            contentDescription = null,
-                            tint = Red500,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text("读取设置失败", color = Slate900, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(error!!, color = Slate500, fontSize = 12.sp, textAlign = TextAlign.Center)
-                        Spacer(Modifier.height(16.dp))
-                        Button(
-                            onClick = { loadSettings() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Teal500)
-                        ) {
-                            Text("重试")
-                        }
+        if (error != null && grouped.isEmpty()) {
+            // 错误状态
+            Box(
+                Modifier.fillMaxSize().padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Filled.ErrorOutline,
+                        contentDescription = null,
+                        tint = Red500,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("读取设置失败", color = Slate900, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(error, color = Slate500, fontSize = 12.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = onRefresh,
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                    ) {
+                        Text("重试")
                     }
                 }
-            } else {
-                // 可滚动内容区
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 8.dp)
-                ) {
-                    // 分类分组
-                    grouped.forEach { (category, items) ->
-                        val isExpanded = expandedCategories.getOrPut(category) { true }
-                        val icon = categoryIcons[category] ?: Icons.Filled.Settings
-                        val color = categoryColors[category] ?: Slate500
+            }
+        } else {
+            // 分类网格
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                grouped.forEach { (category, items) ->
+                    val icon = categoryIcons[category] ?: Icons.Filled.Settings
+                    val color = categoryColors[category] ?: Slate500
+                    
+                    CategoryCard(
+                        category = category,
+                        itemCount = items.size,
+                        icon = icon,
+                        color = color,
+                        onClick = { onCategoryClick(category) }
+                    )
+                }
+                
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
 
-                        // 分类标题卡片
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isExpanded) color.copy(alpha = 0.1f) else Color.White
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
-                                .clickable { expandedCategories[category] = !isExpanded }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                            ) {
-                                Icon(
-                                    icon,
-                                    contentDescription = null,
-                                    tint = color,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    category,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Slate900,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = color.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        "${items.size}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = color,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
-                                }
-                                Spacer(Modifier.width(8.dp))
-                                Icon(
-                                    if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                    contentDescription = null,
-                                    tint = Slate400,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
+// 分类卡片
+@Composable
+private fun CategoryCard(
+    category: String,
+    itemCount: Int,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(20.dp)
+        ) {
+            // 图标
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = color.copy(alpha = 0.15f),
+                modifier = Modifier.size(56.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = color,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+            
+            Spacer(Modifier.width(16.dp))
+            
+            // 文字
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    category,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Slate900
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "$itemCount 项设置",
+                    fontSize = 13.sp,
+                    color = Slate500
+                )
+            }
+            
+            // 箭头
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = Slate400,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
 
-                        // 分类内容 - 卡片网格布局
-                        AnimatedVisibility(visible = isExpanded) {
-                            Column(modifier = Modifier.padding(horizontal = 12.dp)) {
-                                // 只有 bool 类型采用网格布局
-                                val boolSettings = items.filter { it.type == "bool" }
-                                val otherSettings = items.filter { it.type != "bool" }
+// 分类详情页
+@Composable
+private fun CategoryDetailScreen(
+    category: String,
+    settings: List<C3SettingMeta>,
+    repository: SettingsRepository,
+    pendingKeys: Set<String>,
+    onBack: () -> Unit,
+    onPendingChange: (String, Boolean) -> Unit,
+    onSettingChanged: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val icon = categoryIcons[category] ?: Icons.Filled.Settings
+    val color = categoryColors[category] ?: Slate500
 
-                                // Bool 开关 - 2列网格
-                                if (boolSettings.isNotEmpty()) {
-                                    boolSettings.chunked(2).forEach { rowItems ->
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            rowItems.forEach { setting ->
-                                                BoolSettingCard(
-                                                    setting = setting,
-                                                    isPending = pendingKeys.contains(setting.key),
-                                                    modifier = Modifier.weight(1f),
-                                                    onValueChanged = { newValue ->
-                                                        pendingKeys = pendingKeys + setting.key
-                                                        scope.launch {
-                                                            repository.setSetting(setting.key, newValue).fold(
-                                                                onSuccess = { result ->
-                                                                    pendingKeys = pendingKeys - setting.key
-                                                                    if (result.error != null) {
-                                                                        Toast.makeText(
-                                                                            context,
-                                                                            "${setting.title}: ${result.error}",
-                                                                            Toast.LENGTH_SHORT
-                                                                        ).show()
-                                                                    }
-                                                                    delay(200)
-                                                                    loadSettings()
-                                                                },
-                                                                onFailure = { e ->
-                                                                    pendingKeys = pendingKeys - setting.key
-                                                                    Toast.makeText(
-                                                                        context,
-                                                                        "${setting.title}: ${e.message}",
-                                                                        Toast.LENGTH_SHORT
-                                                                    ).show()
-                                                                }
-                                                            )
-                                                        }
-                                                    }
-                                                )
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 标题栏
+        Surface(color = Color.White, shadowElevation = 2.dp) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, "返回", tint = Slate700)
+                }
+                
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        category,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Slate900
+                    )
+                    Text(
+                        "${settings.size} 项设置 · 修改后立即同步",
+                        fontSize = 11.sp,
+                        color = Slate500
+                    )
+                }
+            }
+        }
+
+        // 设置列表
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp)
+        ) {
+            val boolSettings = settings.filter { it.type == "bool" }
+            val otherSettings = settings.filter { it.type != "bool" }
+
+            // Bool 开关 - 2列网格
+            if (boolSettings.isNotEmpty()) {
+                boolSettings.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowItems.forEach { setting ->
+                            BoolSettingCard(
+                                setting = setting,
+                                isPending = pendingKeys.contains(setting.key),
+                                modifier = Modifier.weight(1f),
+                                onValueChanged = { newValue ->
+                                    onPendingChange(setting.key, true)
+                                    scope.launch {
+                                        repository.setSetting(setting.key, newValue).fold(
+                                            onSuccess = { result ->
+                                                onPendingChange(setting.key, false)
+                                                if (result.error != null) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "${setting.title}: ${result.error}",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                                delay(200)
+                                                onSettingChanged()
+                                            },
+                                            onFailure = { e ->
+                                                onPendingChange(setting.key, false)
+                                                Toast.makeText(
+                                                    context,
+                                                    "${setting.title}: ${e.message}",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
                                             }
-                                            // 填充空白
-                                            if (rowItems.size == 1) {
-                                                Spacer(modifier = Modifier.weight(1f))
-                                            }
-                                        }
-                                        Spacer(Modifier.height(8.dp))
+                                        )
                                     }
                                 }
-
-                                // 其他类型 - 全宽卡片
-                                otherSettings.forEach { setting ->
-                                    ComplexSettingCard(
-                                        setting = setting,
-                                        isPending = pendingKeys.contains(setting.key),
-                                        onValueChanged = { newValue ->
-                                            pendingKeys = pendingKeys + setting.key
-                                            scope.launch {
-                                                repository.setSetting(setting.key, newValue).fold(
-                                                    onSuccess = { result ->
-                                                        pendingKeys = pendingKeys - setting.key
-                                                        if (result.error != null) {
-                                                            Toast.makeText(
-                                                                context,
-                                                                "${setting.title}: ${result.error}",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
-                                                        }
-                                                        delay(200)
-                                                        loadSettings()
-                                                    },
-                                                    onFailure = { e ->
-                                                        pendingKeys = pendingKeys - setting.key
-                                                        Toast.makeText(
-                                                            context,
-                                                            "${setting.title}: ${e.message}",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                }
-                            }
+                            )
                         }
-
-                        Spacer(Modifier.height(4.dp))
+                        // 填充空白
+                        if (rowItems.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
-
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
             }
+
+            // 其他类型 - 全宽卡片
+            otherSettings.forEach { setting ->
+                ComplexSettingCard(
+                    setting = setting,
+                    isPending = pendingKeys.contains(setting.key),
+                    onValueChanged = { newValue ->
+                        onPendingChange(setting.key, true)
+                        scope.launch {
+                            repository.setSetting(setting.key, newValue).fold(
+                                onSuccess = { result ->
+                                    onPendingChange(setting.key, false)
+                                    if (result.error != null) {
+                                        Toast.makeText(
+                                            context,
+                                            "${setting.title}: ${result.error}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                    delay(200)
+                                    onSettingChanged()
+                                },
+                                onFailure = { e ->
+                                    onPendingChange(setting.key, false)
+                                    Toast.makeText(
+                                        context,
+                                        "${setting.title}: ${e.message}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+                        }
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
