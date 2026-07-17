@@ -228,8 +228,58 @@ private fun FixedCanCaptureCard(
         QuickCommand(
             id = -1L,
             title = "抓取CAN信号",
-            command = "mkdir -p /data/appdata && cd /data/openpilot && timeout 60 python -c \"from cereal import messaging; import time; sock = messaging.sub_sock('can'); f = open('/data/appdata/fullcan_$timestamp.log', 'w'); [f.write(str(messaging.recv_one(sock)) + '\\\\n') for _ in range(10000)]; f.close()\" && echo '✓ CAN数据已保存到 /data/appdata/fullcan_$timestamp.log'",
-            description = "抓取60秒CAN数据用于故障分析",
+            command = """
+                mkdir -p /data/appdata
+                echo "开始抓取CAN数据，按 Ctrl+C 停止..."
+                cd /data/openpilot
+                python3 -u -c "
+import cereal.messaging as messaging
+import time
+import sys
+
+output_file = '/data/appdata/fullcan_$timestamp.log'
+sock = messaging.sub_sock('can')
+count = 0
+start_time = time.time()
+
+try:
+    with open(output_file, 'w') as f:
+        print(f'✓ 文件已创建: {output_file}')
+        print('正在抓取CAN数据... (按 Ctrl+C 停止)\n')
+        
+        while True:
+            msg = messaging.recv_one(sock)
+            if msg is not None:
+                for can_msg in msg.can:
+                    # 格式: {\"t\": timestamp, \"bus\": bus, \"addr\": address, \"hex\": hex_data}
+                    line = {
+                        't': can_msg.logMonoTime,
+                        'bus': can_msg.src,
+                        'addr': can_msg.address,
+                        'hex': can_msg.dat.hex()
+                    }
+                    f.write(str(line) + '\n')
+                    count += 1
+                    
+                    # 每1000条打印一次进度
+                    if count % 1000 == 0:
+                        elapsed = time.time() - start_time
+                        rate = count / elapsed if elapsed > 0 else 0
+                        print(f'\r已抓取: {count} 条 | 速率: {rate:.1f} 条/秒 | 时长: {elapsed:.1f}s', end='', flush=True)
+                        f.flush()  # 确保数据写入磁盘
+except KeyboardInterrupt:
+    elapsed = time.time() - start_time
+    print(f'\n\n✓ 抓取完成!')
+    print(f'  总数量: {count} 条')
+    print(f'  总时长: {elapsed:.1f} 秒')
+    print(f'  平均速率: {count/elapsed:.1f} 条/秒')
+    print(f'  保存位置: {output_file}')
+except Exception as e:
+    print(f'\n❌ 错误: {e}', file=sys.stderr)
+    sys.exit(1)
+"
+            """.trimIndent(),
+            description = "全量CAN数据，手动Ctrl+C停止",
             sortOrder = -1
         )
     }
