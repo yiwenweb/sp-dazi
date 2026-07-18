@@ -880,47 +880,69 @@ private fun ComplexSettingCard(
 
 
 // 模型选择视图
-// 模型信息视图（只读）
 @Composable
 private fun ModelSelectionView(sshManager: SshManager) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    var activeBundle by remember { mutableStateOf<String?>(null) }
-    var downloadedModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var currentModel by remember { mutableStateOf<String?>(null) }
+    var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+    var isSwitching by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     
-    fun loadModelInfo() {
+    fun loadCurrentModel() {
         scope.launch {
             isLoading = true
-            
-            // 读取当前激活的模型�?
-            sshManager.executeCommand("cat /data/params/d/ModelManager_ActiveBundle 2>/dev/null || echo ''").fold(
+            error = null
+            // 使用 Params 类读取，如果不存在则使用默认�?
+            sshManager.executeCommand("cd /data/openpilot && python3 -c \"from common.params import Params; print(Params().get('Model', encoding='utf-8') or 'supercombo.onnx')\"").fold(
                 onSuccess = { output -> 
-                    activeBundle = output.trim().ifEmpty { "Default (Stock)" }
+                    currentModel = output.trim()
                 },
-                onFailure = { 
-                    activeBundle = "Default (Stock)"
+                onFailure = { e -> 
+                    error = "读取失败: ${e.message}"
+                    currentModel = null
                 }
             )
-            
-            // 列出已下载的模型文件
-            sshManager.executeCommand("ls /data/media/0/models/*.onnx /data/media/0/models/*.dlc 2>/dev/null | xargs -n1 basename 2>/dev/null || echo ''").fold(
-                onSuccess = { output ->
-                    downloadedModels = output.trim().split("\n")
-                        .filter { it.isNotBlank() }
-                        .sorted()
-                },
-                onFailure = {
-                    downloadedModels = emptyList()
-                }
-            )
-            
             isLoading = false
         }
     }
     
+    fun loadAvailableModels() {
+        scope.launch {
+            sshManager.executeCommand("ls /data/models 2>/dev/null || echo 'supercombo.onnx'").fold(
+                onSuccess = { output ->
+                    availableModels = output.trim().split("\n")
+                        .filter { it.isNotBlank() && (it.endsWith(".onnx") || it.endsWith(".dlc")) }
+                        .sorted()
+                },
+                onFailure = { e ->
+                    availableModels = listOf("supercombo.onnx")
+                }
+            )
+        }
+    }
+    
+    fun switchModel(model: String) {
+        scope.launch {
+            isSwitching = true
+            sshManager.executeCommand("cd /data/openpilot && python3 -c \"from common.params import Params; Params().put('Model', '$model')\"").fold(
+                onSuccess = {
+                    currentModel = model
+                    Toast.makeText(context, "模型已切�? $model\n重启 openpilot 后生�?, Toast.LENGTH_LONG).show()
+                },
+                onFailure = { e ->
+                    Toast.makeText(context, "切换失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            )
+            isSwitching = false
+        }
+    }
+    
     LaunchedEffect(Unit) {
-        loadModelInfo()
+        loadCurrentModel()
+        loadAvailableModels()
     }
     
     Column(
@@ -930,33 +952,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 提示信息卡片
-        Card(
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)), // Amber100
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Filled.Info,
-                    contentDescription = null,
-                    tint = Color(0xFFD97706), // Amber600
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "模型管理功能请在 C3 设备上操�?,
-                    fontSize = 13.sp,
-                    color = Color(0xFF92400E), // Amber900
-                    lineHeight = 18.sp
-                )
-            }
-        }
-        
-        // 当前激活模型包
+        // 当前模型卡片
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F9FF)), // Blue50
@@ -972,7 +968,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        "当前激活模型包",
+                        "当前模型",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Slate900
@@ -985,7 +981,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
                             color = Color(0xFF0284C7)
                         )
                     } else {
-                        IconButton(onClick = { loadModelInfo() }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { loadCurrentModel() }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Filled.Refresh, "刷新", tint = Color(0xFF0284C7))
                         }
                     }
@@ -993,16 +989,16 @@ private fun ModelSelectionView(sshManager: SshManager) {
                 
                 Spacer(Modifier.height(12.dp))
                 
-                if (activeBundle != null) {
+                if (currentModel != null) {
                     Text(
-                        activeBundle!!,
+                        currentModel!!,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF0284C7)
                     )
                 } else {
                     Text(
-                        "读取�?..",
+                        error ?: "未知",
                         fontSize = 14.sp,
                         color = Slate500
                     )
@@ -1010,15 +1006,15 @@ private fun ModelSelectionView(sshManager: SshManager) {
             }
         }
         
-        // 已下载模型列�?
+        // 可用模型列表
         Text(
-            "已下载模型文�?(${downloadedModels.size})",
+            "可用模型",
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             color = Slate900
         )
         
-        if (downloadedModels.isEmpty()) {
+        if (availableModels.isEmpty()) {
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = Slate50)
@@ -1038,57 +1034,67 @@ private fun ModelSelectionView(sshManager: SshManager) {
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            "未找到已下载的模型文�?,
+                            "未找到可用模�?,
                             fontSize = 14.sp,
-                            color = Slate500,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "模型存储路径: /data/media/0/models/",
-                            fontSize = 11.sp,
-                            color = Slate400,
-                            textAlign = TextAlign.Center
+                            color = Slate500
                         )
                     }
                 }
             }
         } else {
-            downloadedModels.forEach { model ->
+            availableModels.forEach { model ->
+                val isCurrent = model == currentModel
+                val isPending = isSwitching && model != currentModel
+                
                 Card(
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isCurrent) Color(0xFFF0FDF4) else Color.White // Green50
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrent) 2.dp else 1.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isCurrent && !isSwitching) {
+                            switchModel(model)
+                        }
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(16.dp)
                     ) {
                         Icon(
-                            Icons.Filled.Description,
+                            if (isCurrent) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
                             contentDescription = null,
-                            tint = Color(0xFF9333EA), // Purple600
+                            tint = if (isCurrent) Green500 else Slate400,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                model,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Slate900
+                        Text(
+                            model,
+                            fontSize = 15.sp,
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isCurrent) Green500 else Slate900,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (isPending) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp),
+                                color = Teal500
                             )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                when {
-                                    model.endsWith(".onnx") -> "ONNX 模型"
-                                    model.endsWith(".dlc") -> "DLC 模型"
-                                    else -> "模型文件"
-                                },
-                                fontSize = 11.sp,
-                                color = Slate500
-                            )
+                        } else if (isCurrent) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Green500.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    "使用�?,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Green500,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
