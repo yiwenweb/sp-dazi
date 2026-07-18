@@ -48,7 +48,7 @@ import com.sunnypilot.toolbox.ui.screens.LateralTuneScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderScreen
 import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
-import com.sunnypilot.toolbox.ui.screens.VideoScreen
+import com.sunnypilot.toolbox.ui.screens.H264VideoScreen
 import com.sunnypilot.toolbox.ui.screens.ScreenMirrorScreen
 import com.sunnypilot.toolbox.ui.screens.FileScreen
 import com.sunnypilot.toolbox.ui.theme.*
@@ -289,7 +289,7 @@ fun MainScreen(
                             NavItem.Radar -> RadarCaptureScreen(
                                 sshManager = sshManager
                             )
-                            NavItem.Video -> VideoScreen(
+                            NavItem.Video -> H264VideoScreen(
                                 sshManager = sshManager
                             )
                             NavItem.Cast -> ScreenMirrorScreen()
