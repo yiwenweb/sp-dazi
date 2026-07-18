@@ -107,6 +107,29 @@ class VideoStreamRepository(
         // 再启动
         return enableStream(camera)
     }
+    
+    /** 重新部署MJPEG脚本（强制覆盖） */
+    suspend fun redeployScript(): Result<String> {
+        return try {
+            val content = context.assets.open("mjpeg_stream.py")
+                .bufferedReader().use { it.readText() }
+            
+            // 写入文件
+            sshManager.writeTextFile(REMOTE_SCRIPT, content).fold(
+                onSuccess = {
+                    Log.d(TAG, "MJPEG script redeployed successfully")
+                    Result.success("✓ MJPEG脚本部署成功\n路径: $REMOTE_SCRIPT\n大小: ${content.length} bytes")
+                },
+                onFailure = { e ->
+                    Log.e(TAG, "Failed to redeploy MJPEG script", e)
+                    Result.failure(e)
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read MJPEG script from assets", e)
+            Result.failure(e)
+        }
+    }
 
     /** 关闭 C3 端摄像头流 + MJPEG 服务器 */
     suspend fun disableStream(): Result<Unit> {

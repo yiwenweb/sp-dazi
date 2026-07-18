@@ -58,32 +58,102 @@ class HudDataRepository(
         isLenient = true
     }
     
-    /** 启动C3端HUD数据服务器 */
+    /** 启动C3端HUD数据服务器（智能启动，不杀现有进程） */
     suspend fun startHudServer(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             // 0. 确保目录存在
-            sshManager.executeCommand("mkdir -p /data/spapp/spyl/log")
+            sshManager.executeCommand("mkdir -p $LOG_DIR")
             
-            // 1. 检查脚本是否已部署
+            // 1. 先检查服务是否已经在运行
+            val running = isHudRunning().getOrDefault(false)
+            if (running) {
+                Log.d(TAG, "HUD server already running, skipping startup")
+                return@withContext Result.success(Unit)
+            }
+            
+            // 2. 检查脚本是否已部署
             val deployed = isScriptDeployed().getOrDefault(false)
             if (!deployed) {
                 deployScript().getOrThrow()
             }
             
-            // 2. 启动服务器（使用 Python 虚拟环境）
+            // 3. 启动服务器（不杀旧进程）
             val startCmd = buildString {
-                append("pkill -f hud_data_server 2>/dev/null; ")
                 append("cd /data/openpilot && ")
-                append(". /usr/local/venv/bin/activate && ")  // 激活虚拟环境
+                append(". /usr/local/venv/bin/activate && ")
                 append("export PYTHONPATH=/data/openpilot && ")
                 append("nohup python3 $REMOTE_SCRIPT --port $HUD_PORT --host 0.0.0.0 ")
                 append("> $LOG_DIR/hud_data_server.log 2>&1 & ")
-                append("sleep 1 && echo 'HUD server started'")
+                
+                // 等待并验证服务启动
+                append("sleep 2; ")
+                
+                // 检查进程是否真的在运行
+                append("if pgrep -f hud_data_server > /dev/null; then ")
+                append("  echo 'HUD server started'; ")
+                append("else ")
+                append("  echo 'ERROR: HUD server failed to start'; ")
+                append("  tail -n 20 $LOG_DIR/hud_data_server.log; ")
+                append("  exit 1; ")
+                append("fi")
             }
             
-            sshManager.executeCommand(startCmd).map { }
+            val result = sshManager.executeCommand(startCmd)
+            
+            // 检查启动结果
+            result.fold(
+                onSuccess = { output ->
+                    if (output.contains("ERROR")) {
+                        Log.e(TAG, "HUD start failed: $output")
+                        return@withContext Result.failure(Exception("HUD server failed to start. Check log: $LOG_DIR/hud_data_server.log"))
+                    }
+                    Log.d(TAG, "HUD start success: $output")
+                },
+                onFailure = { e ->
+                    Log.e(TAG, "HUD start command failed", e)
+                    return@withContext Result.failure(e)
+                }
+            )
+            
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start HUD server", e)
+            Result.failure(e)
+        }
+    }
+    
+    /** 强制重启HUD服务 */
+    suspend fun restartHudServer(): Result<Unit> {
+        stopHudServer()
+        kotlinx.coroutines.delay(1000)
+        return startHudServer()
+    }
+    
+    /** 检查HUD服务器是否在运行 */
+    suspend fun isHudRunning(): Result<Boolean> {
+        return sshManager.executeCommand("pgrep -f hud_data_server | wc -l")
+            .map { (it.trim().toIntOrNull() ?: 0) > 0 }
+    }
+    
+    /** 重新部署HUD脚本（强制覆盖） */
+    suspend fun redeployScript(): Result<String> {
+        return try {
+            val content = context.assets.open("hud_data_server.py")
+                .bufferedReader().use { it.readText() }
+            
+            // 写入文件
+            sshManager.writeTextFile(REMOTE_SCRIPT, content).fold(
+                onSuccess = {
+                    Log.d(TAG, "HUD script redeployed successfully")
+                    Result.success("✓ HUD脚本部署成功\n路径: $REMOTE_SCRIPT\n大小: ${content.length} bytes")
+                },
+                onFailure = { e ->
+                    Log.e(TAG, "Failed to redeploy HUD script", e)
+                    Result.failure(e)
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read HUD script from assets", e)
             Result.failure(e)
         }
     }

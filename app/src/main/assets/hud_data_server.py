@@ -53,7 +53,7 @@ class HudDataCollector:
                     "speed": round(self.sm['carState'].vEgo * 3.6, 1),  # m/s → km/h
                     "gear": self._parse_gear(self.sm['carState'].gearShifter),
                     "steeringAngle": round(self.sm['carState'].steeringAngleDeg, 1),
-                    "brakeLights": self.sm['carState'].brakeLights,
+                    "brakeLights": self.sm['carState'].brakePressed,  # 使用brakePressed代替brakeLights
                     "leftBlinker": self.sm['carState'].leftBlinker,
                     "rightBlinker": self.sm['carState'].rightBlinker,
                     
@@ -146,6 +146,9 @@ async def handle_health(request):
 
 def main():
     import argparse
+    import sys
+    import traceback
+    
     parser = argparse.ArgumentParser(description="C3 HUD Data Server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5003)
@@ -153,19 +156,50 @@ def main():
     
     global collector
     print(f"[hud] starting on port {args.port}", flush=True)
-    collector = HudDataCollector()
-    
-    app = web.Application()
-    app.router.add_get("/hud", handle_hud)
-    app.router.add_get("/health", handle_health)
     
     try:
+        # 检查端口是否被占用
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex((args.host, args.port))
+        sock.close()
+        if result == 0:
+            print(f"[hud] ERROR: port {args.port} already in use!", flush=True)
+            sys.exit(1)
+        
+        print(f"[hud] port {args.port} is available", flush=True)
+        
+        # 启动数据收集器
+        collector = HudDataCollector()
+        time.sleep(0.5)  # 给collector一点时间初始化
+        
+        # 创建 aiohttp app
+        app = web.Application()
+        app.router.add_get("/hud", handle_hud)
+        app.router.add_get("/health", handle_health)
+        
+        print(f"[hud] starting HTTP server on {args.host}:{args.port}", flush=True)
         web.run_app(app, host=args.host, port=args.port, print=None)
+        
     except KeyboardInterrupt:
-        pass
+        print("[hud] interrupted by user", flush=True)
+    except Exception as e:
+        print(f"[hud] FATAL ERROR: {e}", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
     finally:
         if collector:
+            print("[hud] stopping data collector", flush=True)
             collector.stop()
+        print("[hud] server stopped", flush=True)
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[hud] TOP LEVEL ERROR: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        import sys
+        sys.exit(1)
