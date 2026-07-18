@@ -55,7 +55,15 @@ fun TerminalScreen(
     fun startServer() {
         for (port in 8080..8090) {
             try {
-                val s = WebManagerServer(port, quickCommandDao, sshManager)
+                val s = WebManagerServer(
+                    port = port, 
+                    dao = quickCommandDao, 
+                    sshManager = sshManager,
+                    onExecuteCommand = { cmd ->
+                        // 通过 sendInput 发送命令到终端
+                        sendInput("$cmd\r")
+                    }
+                )
                 s.start()
                 server = s
                 val ip = QrCodeUtil.getLocalIpAddress()
