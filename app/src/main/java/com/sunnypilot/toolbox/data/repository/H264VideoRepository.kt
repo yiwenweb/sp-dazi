@@ -5,6 +5,7 @@ import android.util.Log
 import com.sunnypilot.toolbox.data.SshManager
 import kotlinx.coroutines.*
 import okhttp3.*
+import okio.ByteString
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicReference
 
@@ -72,7 +73,10 @@ class H264VideoRepository(
         val url = "ws://$host:$WEBSOCKET_PORT/ws?camera=$camera"
         Log.d(TAG, "Connecting to WebSocket: $url")
 
-        ws = client.newWebSocket(null, object : WebSocketListener() {
+        val request = Request.Builder()
+            .url(url)
+            .build()
+        ws = client.newWebSocket(request, object : WebSocketListener() {
             private var pendingSize = 0
             private val frameBuffer = ByteArrayOutputStream()
 
@@ -102,7 +106,7 @@ class H264VideoRepository(
                     if (pendingSize > 0) {
                         // 累积 H264 数据
                         val data = bytes.toByteArray()
-                        frameBuffer.write(data)
+                        frameBuffer.write(data, 0, data.size)
                         
                         // 如果数据完整，回调
                         if (frameBuffer.size() >= pendingSize) {
@@ -218,7 +222,7 @@ class H264VideoRepository(
 
     /** 停止服务 */
     suspend fun stopService(): Result<Unit> {
-        return sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo stopped").map { }
+        return sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo stopped").map { Unit }
     }
 
     /** 重启服务 */
@@ -237,6 +241,7 @@ class H264VideoRepository(
             sshManager.executeCommand("mkdir -p $LOG_DIR")
             sshManager.writeTextFile(REMOTE_SCRIPT, content).map {
                 Log.d(TAG, "H264 forward script deployed successfully")
+                Unit
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deploy H264 forward script", e)
