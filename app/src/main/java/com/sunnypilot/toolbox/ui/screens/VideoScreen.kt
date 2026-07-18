@@ -103,7 +103,7 @@ fun VideoScreen(
         isCheckingServices = true
         
         // 检查MJPEG服务（带重试，避免网络抖动误判）
-        repeat(3) { attempt ->
+        for (attempt in 0 until 3) {
             videoRepo.isStreamRunning().fold(
                 onSuccess = { running ->
                     mjpegServiceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
@@ -119,7 +119,7 @@ fun VideoScreen(
         }
         
         // 检查HUD服务
-        repeat(3) { attempt ->
+        for (attempt in 0 until 3) {
             hudRepo.isHudRunning().fold(
                 onSuccess = { running ->
                     hudServiceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
