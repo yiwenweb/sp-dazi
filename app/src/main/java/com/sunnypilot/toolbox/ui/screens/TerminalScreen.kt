@@ -52,48 +52,6 @@ fun TerminalScreen(
     var server by remember { mutableStateOf<WebManagerServer?>(null) }
     var serverRunning by remember { mutableStateOf(false) }
 
-    fun startServer() {
-        for (port in 8080..8090) {
-            try {
-                val s = WebManagerServer(
-                    port = port, 
-                    dao = quickCommandDao, 
-                    sshManager = sshManager,
-                    onExecuteCommand = { cmd ->
-                        // 通过 sendInput 发送命令到终端
-                        sendInput("$cmd\r")
-                    }
-                )
-                s.start()
-                server = s
-                val ip = QrCodeUtil.getLocalIpAddress()
-                serverUrl = ip?.let { "http://$it:$port" }
-                serverRunning = true
-                break
-            } catch (_: Exception) { }
-        }
-    }
-
-    fun stopServer() {
-        server?.stop()
-        server = null
-        serverUrl = null
-        serverRunning = false
-    }
-
-    fun restartServer() {
-        scope.launch(Dispatchers.IO) {
-            stopServer()
-            startServer()
-        }
-    }
-
-    DisposableEffect(Unit) {
-        startServer()
-        onDispose { stopServer() }
-    }
-
-
     var terminalText by remember { mutableStateOf("") }
     var inputText by remember { mutableStateOf("") }
     var realTimeInput by remember { mutableStateOf(false) }
@@ -134,6 +92,47 @@ fun TerminalScreen(
         } else {
             inputText += char
         }
+    }
+
+    fun startServer() {
+        for (port in 8080..8090) {
+            try {
+                val s = WebManagerServer(
+                    port = port, 
+                    dao = quickCommandDao, 
+                    sshManager = sshManager,
+                    onExecuteCommand = { cmd ->
+                        // 通过 sendInput 发送命令到终端
+                        sendInput("$cmd\r")
+                    }
+                )
+                s.start()
+                server = s
+                val ip = QrCodeUtil.getLocalIpAddress()
+                serverUrl = ip?.let { "http://$it:$port" }
+                serverRunning = true
+                break
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun stopServer() {
+        server?.stop()
+        server = null
+        serverUrl = null
+        serverRunning = false
+    }
+
+    fun restartServer() {
+        scope.launch(Dispatchers.IO) {
+            stopServer()
+            startServer()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        startServer()
+        onDispose { stopServer() }
     }
 
     LaunchedEffect(sshManager.isConnected()) {
