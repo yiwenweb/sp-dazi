@@ -739,17 +739,13 @@ private fun DiagnosticsDialog(
                                     if (json.contains("speed") || json.contains("gear")) {
                                         result.append("✓ HUD 数据获取成功\n")
                                         // 尝试解析显示关键数据
-                                        when {
-                                            json.contains("\"speed\":") -> {
-                                                val speed = json.substringAfter("\"speed\":").substringBefore(",").trim()
-                                                result.append("  速度: $speed km/h\n")
-                                            }
+                                        if (json.contains("\"speed\":")) {
+                                            val speed = json.substringAfter("\"speed\":").substringBefore(",").trim()
+                                            result.append("  速度: $speed km/h\n")
                                         }
-                                        when {
-                                            json.contains("\"gear\":") -> {
-                                                val gear = json.substringAfter("\"gear\":\"").substringBefore("\"")
-                                                result.append("  档位: $gear\n")
-                                            }
+                                        if (json.contains("\"gear\":")) {
+                                            val gear = json.substringAfter("\"gear\":\"").substringBefore("\"")
+                                            result.append("  档位: $gear\n")
                                         }
                                     } else {
                                         result.append("⚠ HUD 数据格式异常\n")
