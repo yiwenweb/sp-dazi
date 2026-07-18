@@ -202,22 +202,50 @@ def main():
 
     global grabber
     print("[mjpeg] starting, camera=%s, port=%d" % (args.camera, args.port), flush=True)
-    grabber = FrameGrabber(args.camera)
-
-    app = web.Application()
-    app["camera"] = args.camera
-    app.router.add_get("/frame", handle_frame)
-    app.router.add_get("/stream", handle_stream)
-    app.router.add_get("/health", handle_health)
-
+    
     try:
+        # 检查端口是否被占用
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex((args.host, args.port))
+        sock.close()
+        if result == 0:
+            print("[mjpeg] ERROR: port %d already in use!" % args.port, flush=True)
+            sys.exit(1)
+        
+        print("[mjpeg] port %d is available" % args.port, flush=True)
+        
+        # 启动帧捕获器
+        grabber = FrameGrabber(args.camera)
+        time.sleep(0.5)  # 给grabber一点时间初始化
+        
+        # 创建 aiohttp app
+        app = web.Application()
+        app["camera"] = args.camera
+        app.router.add_get("/frame", handle_frame)
+        app.router.add_get("/stream", handle_stream)
+        app.router.add_get("/health", handle_health)
+        
+        print("[mjpeg] starting HTTP server on %s:%d" % (args.host, args.port), flush=True)
         web.run_app(app, host=args.host, port=args.port, print=None)
+        
     except KeyboardInterrupt:
-        pass
+        print("[mjpeg] interrupted by user", flush=True)
+    except Exception as e:
+        print("[mjpeg] FATAL ERROR: %s" % e, flush=True)
+        traceback.print_exc()
+        sys.exit(1)
     finally:
         if grabber:
+            print("[mjpeg] stopping frame grabber", flush=True)
             grabber.stop()
+        print("[mjpeg] server stopped", flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print("[mjpeg] TOP LEVEL ERROR: %s" % e, flush=True)
+        traceback.print_exc()
+        sys.exit(1)

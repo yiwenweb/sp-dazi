@@ -47,15 +47,48 @@ class VideoStreamRepository(
         // 3. 杀旧进程 + 启动新进程（使用 Python 虚拟环境）
         val cameraArg = if (camera == "wideRoad") "wideRoad" else "road"
         val startCmd = buildString {
-            append("pkill -f mjpeg_stream 2>/dev/null; ")
+            // 先彻底清理旧进程
+            append("pkill -9 -f mjpeg_stream 2>/dev/null; ")
+            append("sleep 1; ")
+            
+            // 启动新进程
             append("cd $OPENPILOT && ")
             append(". /usr/local/venv/bin/activate && ")  // 激活虚拟环境
             append("export PYTHONPATH=$OPENPILOT && ")
             append("nohup python3 $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT --host 0.0.0.0 ")
             append("> $LOG_DIR/mjpeg_stream.log 2>&1 & ")
-            append("sleep 1 && echo 'MJPEG server started'")
+            
+            // 等待并验证服务启动
+            append("sleep 2; ")
+            
+            // 检查进程是否真的在运行
+            append("if pgrep -f mjpeg_stream > /dev/null; then ")
+            append("  echo 'MJPEG server started'; ")
+            append("else ")
+            append("  echo 'ERROR: MJPEG server failed to start'; ")
+            append("  tail -n 20 $LOG_DIR/mjpeg_stream.log; ")
+            append("  exit 1; ")
+            append("fi")
         }
-        return sshManager.executeCommand(startCmd).map { }
+        
+        val result = sshManager.executeCommand(startCmd)
+        
+        // 检查启动结果
+        result.fold(
+            onSuccess = { output ->
+                if (output.contains("ERROR")) {
+                    Log.e(TAG, "MJPEG start failed: $output")
+                    return Result.failure(Exception("MJPEG server failed to start. Check log: $LOG_DIR/mjpeg_stream.log"))
+                }
+                Log.d(TAG, "MJPEG start success: $output")
+            },
+            onFailure = { e ->
+                Log.e(TAG, "MJPEG start command failed", e)
+                return Result.failure(e)
+            }
+        )
+        
+        return Result.success(Unit)
     }
 
     /** 关闭 C3 端摄像头流 + MJPEG 服务器 */

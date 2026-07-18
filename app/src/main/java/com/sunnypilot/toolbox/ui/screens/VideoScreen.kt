@@ -88,14 +88,14 @@ fun VideoScreen(
         Log.d("VideoScreen", "Starting MJPEG stream, camera=$camera, ip=$c3Ip")
         videoRepo.enableStream(camera.key).fold(
             onSuccess = {
-                Log.d("VideoScreen", "MJPEG stream command sent, waiting for startup...")
-                // 等待 MJPEG 服务器启动（增加到4秒）
-                delay(4000)
+                Log.d("VideoScreen", "MJPEG stream command sent successfully")
+                // 服务启动命令已经包含2秒等待和验证，再额外等待2秒确保HTTP服务ready
+                delay(2000)
                 isStarting = false
                 Log.d("VideoScreen", "MJPEG stream should be ready now")
             },
             onFailure = { e ->
-                error = "启动视频流失败: ${e.message}\n\n建议：\n1. 点击设置图标运行诊断\n2. 尝试重新部署脚本\n3. 检查C3设备是否已启动车辆"
+                error = "启动视频流失败: ${e.message}\n\n建议：\n1. 点击设置图标运行诊断\n2. 查看C3日志: /data/spapp/spyl/log/mjpeg_stream.log\n3. 检查C3设备是否已启动车辆"
                 isStarting = false
                 Log.e("VideoScreen", "Failed to enable stream", e)
             }
