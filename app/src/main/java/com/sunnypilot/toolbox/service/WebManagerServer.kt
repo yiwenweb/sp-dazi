@@ -135,6 +135,17 @@ class WebManagerServer(
                 handleMkdir(dirPath)
             }
 
+            uri == "api/files/copy" && method == Method.POST -> {
+                val body = parseBody(session)
+                val obj = json.decodeFromString(JsonObject.serializer(), body.ifEmpty { "{}" })
+                val sourcePath = obj["source"]?.jsonPrimitive?.contentOrNull
+                    ?: return badRequest("Missing source")
+                val targetPath = obj["target"]?.jsonPrimitive?.contentOrNull
+                    ?: return badRequest("Missing target")
+                val isDir = obj["isDir"]?.jsonPrimitive?.booleanOrNull ?: false
+                handleCopy(sourcePath, targetPath, isDir)
+            }
+
             // ── 404 ──
             else -> respondText("Not Found", Status.NOT_FOUND)
         }
@@ -279,6 +290,28 @@ class WebManagerServer(
         }
         return result.fold(
             onSuccess = { respondJson("""{"ok":true}""") },
+            onFailure = { respondJson("""{"error":"${it.message}"}""", Status.INTERNAL_ERROR) }
+        )
+    }
+
+    private fun handleCopy(sourcePath: String, targetPath: String, isDir: Boolean): Response {
+        val result = runBlocking {
+            sshManager.executeCommand(
+                if (isDir) {
+                    "cp -r \"$sourcePath\" \"$targetPath\""
+                } else {
+                    "cp \"$sourcePath\" \"$targetPath\""
+                }
+            )
+        }
+        return result.fold(
+            onSuccess = { 
+                if (it.contains("error", ignoreCase = true) || it.contains("cannot", ignoreCase = true)) {
+                    respondJson("""{"error":"Copy failed: $it"}""", Status.INTERNAL_ERROR)
+                } else {
+                    respondJson("""{"ok":true}""")
+                }
+            },
             onFailure = { respondJson("""{"error":"${it.message}"}""", Status.INTERNAL_ERROR) }
         )
     }
@@ -561,6 +594,7 @@ button {
     <div class="toolbar">
       <button class="primary small" onclick="uploadFile()">📤 上传</button>
       <button class="secondary small" onclick="showMkdir()">📁 新建目录</button>
+      <button class="secondary small" id="pasteBtn" onclick="pasteFile()" style="display:none;">📋 粘贴</button>
       <button class="secondary small" onclick="refreshFiles()">🔄</button>
       <input type="file" id="fileInput" multiple onchange="doUpload(this)">
       <span style="font-size:11px;color:#94a3b8;margin-left:auto;" id="fileCount"></span>
@@ -705,6 +739,7 @@ function handleCmdEnter(e) {
 // ====== 文件管理 ======
 let currentFilePath = '/';
 let filesLoaded = false;
+let clipboard = null; // 存储复制的文件信息 {path, isDir, name}
 
 async function loadFiles(path) {
   currentFilePath = path;
@@ -745,6 +780,7 @@ async function loadFiles(path) {
         <span class="file-name">${'$'}{escapeHtml(f.name)}</span>
         <span class="file-size">${'$'}{f.isDirectory ? '-' : f.sizeHuman}</span>
         <div class="file-actions">
+          <button class="secondary small" onclick="event.stopPropagation();copyFile('${'$'}{f.path}',${'$'}{f.isDirectory})">📋</button>
           ${'$'}{!f.isDirectory ? `<button class="secondary small" onclick="event.stopPropagation();downloadFile('${'$'}{f.path}')">⬇</button>` : ''}
           <button class="danger small" onclick="event.stopPropagation();deleteFile('${'$'}{f.path}',${'$'}{f.isDirectory})">🗑</button>
         </div>
@@ -811,6 +847,62 @@ function showMkdir() {
     toast(d.ok ? '创建成功' : '创建失败');
     loadFiles(currentFilePath);
   });
+}
+
+function copyFile(path, isDir) {
+  clipboard = { 
+    path: path, 
+    isDir: isDir,
+    name: path.split('/').pop()
+  };
+  document.getElementById('pasteBtn').style.display = 'inline-block';
+  toast(`已复制: ${'$'}{clipboard.name}`);
+}
+
+async function pasteFile() {
+  if (!clipboard) {
+    toast('剪贴板为空');
+    return;
+  }
+  
+  const fileName = clipboard.name;
+  let targetPath = currentFilePath === '/' ? '/' + fileName : currentFilePath + '/' + fileName;
+  
+  // 如果目标已存在，自动重命名
+  const existingFiles = Array.from(document.querySelectorAll('.file-name')).map(el => el.textContent);
+  if (existingFiles.includes(fileName)) {
+    const ext = fileName.includes('.') ? '.' + fileName.split('.').pop() : '';
+    const base = ext ? fileName.substring(0, fileName.length - ext.length) : fileName;
+    let counter = 1;
+    let newName;
+    do {
+      newName = `${'$'}{base}_copy${'$'}{counter}${'$'}{ext}`;
+      counter++;
+    } while (existingFiles.includes(newName));
+    targetPath = currentFilePath === '/' ? '/' + newName : currentFilePath + '/' + newName;
+  }
+  
+  toast('复制中...');
+  try {
+    const res = await fetch('/api/files/copy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json; charset=utf-8'},
+      body: JSON.stringify({
+        source: clipboard.path,
+        target: targetPath,
+        isDir: clipboard.isDir
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      toast('粘贴成功');
+      loadFiles(currentFilePath);
+    } else {
+      toast('粘贴失败: ' + (data.error || '未知错误'));
+    }
+  } catch (e) {
+    toast('粘贴失败');
+  }
 }
 
 // ====== 快捷命令 ======
