@@ -2,7 +2,11 @@ package com.sunnypilot.toolbox.ui.screens
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaCodec
+import android.media.MediaFormat
 import android.util.Log
+import android.view.Surface
+import android.view.TextureView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,11 +26,14 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.sunnypilot.toolbox.data.SshManager
+import com.sunnypilot.toolbox.data.repository.H264VideoRepository
 import com.sunnypilot.toolbox.data.repository.VideoStreamRepository
 import com.sunnypilot.toolbox.data.repository.HudDataRepository
 import com.sunnypilot.toolbox.data.repository.HudData
@@ -40,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
 
 /**
  * 摄像头实时流 — 通过 MJPEG HTTP 轮询观看 C3 摄像头画面。
