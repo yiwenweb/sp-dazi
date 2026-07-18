@@ -335,11 +335,13 @@ fun H264VideoScreen(
                     )
                     
                     // HUD 叠加层
-                    if (showHud && hudData != null) {
-                        HudOverlay(
-                            hudData = hudData,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                    if (showHud) {
+                        hudData?.let { data ->
+                            HudOverlay(
+                                hudData = data,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
 
                     // FPS 指示器
