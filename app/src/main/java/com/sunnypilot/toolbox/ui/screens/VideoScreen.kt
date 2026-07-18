@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,10 +48,24 @@ import java.net.URL
  * 解码为 JPEG 通过 HTTP /frame 提供。Android 端原生 Bitmap 渲染。
  *
  * 优势: 绕过 WebRTC + WebView, 低延迟, 高兼容, 车机也能流畅运行。
+ * 
+ * 服务状态管理:
+ * - 进入页面自动检查服务状态
+ * - 如果服务已运行，直接连接（不杀进程）
+ * - 如果服务未运行，提示用户启动
+ * - 用户可通过设置菜单手动控制服务
  */
 enum class CameraType(val key: String, val title: String, val desc: String) {
     ROAD("road", "主视角", "正前方，ACC/车道保持视线"),
     WIDE("wideRoad", "广角", "两侧变道/盲区视角"),
+}
+
+enum class ServiceStatus {
+    UNKNOWN,    // 未知（未检查）
+    RUNNING,    // 运行中
+    STOPPED,    // 已停止
+    STARTING,   // 启动中
+    ERROR       // 错误
 }
 
 @Composable
@@ -59,54 +74,62 @@ fun VideoScreen(
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     val videoRepo = remember { VideoStreamRepository(context, sshManager) }
     val hudRepo = remember { HudDataRepository(context, sshManager) }
     val c3Ip = remember { sshManager.connectedHost }
 
     var camera by remember { mutableStateOf(CameraType.ROAD) }
     var error by remember { mutableStateOf<String?>(null) }
-    var isStarting by remember { mutableStateOf(true) }
     var frameBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var hudData by remember { mutableStateOf<HudData?>(null) }
-    var showHud by remember { mutableStateOf(true) }  // HUD开关
+    var showHud by remember { mutableStateOf(true) }
     var fps by remember { mutableIntStateOf(0) }
     var retryKey by remember { mutableIntStateOf(0) }
+    
+    // 服务状态
+    var serviceStatus by remember { mutableStateOf(ServiceStatus.UNKNOWN) }
+    var isCheckingService by remember { mutableStateOf(false) }
 
-    // 启动 C3 端 MJPEG 服务器 + HUD服务器
-    LaunchedEffect(camera, retryKey) {
+    // 进入页面时检查服务状态
+    LaunchedEffect(Unit) {
         if (c3Ip.isNullOrBlank()) {
-            error = "无法获取 C3 设备 IP 地址\n请确认已通过 SSH 连接到 C3"
-            isStarting = false
+            serviceStatus = ServiceStatus.ERROR
+            return@LaunchedEffect
+        }
+        
+        isCheckingService = true
+        videoRepo.isStreamRunning().fold(
+            onSuccess = { running ->
+                serviceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
+                Log.d("VideoScreen", "Service status checked: $serviceStatus")
+            },
+            onFailure = {
+                serviceStatus = ServiceStatus.ERROR
+                Log.e("VideoScreen", "Failed to check service status", it)
+            }
+        )
+        isCheckingService = false
+    }
+
+    // 仅当服务运行时才启动视频流和HUD
+    LaunchedEffect(camera, retryKey, serviceStatus) {
+        if (c3Ip.isNullOrBlank() || serviceStatus != ServiceStatus.RUNNING) {
             return@LaunchedEffect
         }
 
-        isStarting = true
         error = null
         frameBitmap = null
         hudData = null
 
-        Log.d("VideoScreen", "Starting MJPEG stream, camera=$camera, ip=$c3Ip")
-        videoRepo.enableStream(camera.key).fold(
-            onSuccess = {
-                Log.d("VideoScreen", "MJPEG stream command sent successfully")
-                // 服务启动命令已经包含2秒等待和验证，再额外等待2秒确保HTTP服务ready
-                delay(2000)
-                isStarting = false
-                Log.d("VideoScreen", "MJPEG stream should be ready now")
-            },
-            onFailure = { e ->
-                error = "启动视频流失败: ${e.message}\n\n建议：\n1. 点击设置图标运行诊断\n2. 查看C3日志: /data/spapp/spyl/log/mjpeg_stream.log\n3. 检查C3设备是否已启动车辆"
-                isStarting = false
-                Log.e("VideoScreen", "Failed to enable stream", e)
-            }
-        )
+        Log.d("VideoScreen", "Service is running, starting video stream for camera=$camera")
         
         // 启动HUD服务器
         Log.d("VideoScreen", "Starting HUD server")
         hudRepo.startHudServer().fold(
             onSuccess = { 
                 Log.d("VideoScreen", "HUD server command sent") 
-                delay(2000)  // 等待HUD服务器启动
+                delay(2000)
             },
             onFailure = { 
                 Log.w("VideoScreen", "HUD server start failed: ${it.message}") 
@@ -114,19 +137,21 @@ fun VideoScreen(
         )
     }
 
-    // 离开页面时关闭流
+    // 离开页面时关闭流（但不关闭服务，让服务继续运行）
     DisposableEffect(Unit) {
         onDispose {
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching { videoRepo.disableStream() }
+            scope.launch {
                 runCatching { hudRepo.stopHudServer() }
+                // 不再调用 videoRepo.disableStream()，让MJPEG服务保持运行
             }
         }
     }
 
     // 轮询HUD数据 (500ms = 2Hz)
-    LaunchedEffect(retryKey, isStarting) {
-        if (c3Ip.isNullOrBlank() || isStarting || error != null) return@LaunchedEffect
+    LaunchedEffect(retryKey, serviceStatus) {
+        if (c3Ip.isNullOrBlank() || serviceStatus != ServiceStatus.RUNNING || error != null) {
+            return@LaunchedEffect
+        }
         
         delay(2000) // 等待HUD服务器启动
         Log.d("VideoScreen", "Starting HUD poll")
@@ -141,8 +166,10 @@ fun VideoScreen(
     }
 
     // 轮询 JPEG 帧
-    LaunchedEffect(camera, retryKey, isStarting) {
-        if (c3Ip.isNullOrBlank() || isStarting || error != null) return@LaunchedEffect
+    LaunchedEffect(camera, retryKey, serviceStatus) {
+        if (c3Ip.isNullOrBlank() || serviceStatus != ServiceStatus.RUNNING || error != null) {
+            return@LaunchedEffect
+        }
 
         val frameUrl = videoRepo.frameUrl(c3Ip)
         Log.d("VideoScreen", "Starting frame poll: $frameUrl")
@@ -205,12 +232,48 @@ fun VideoScreen(
                 if (it != camera) {
                     camera = it
                     error = null
-                    isStarting = true
                     frameBitmap = null
                     retryKey++
                 }
             },
-            sshManager = sshManager
+            sshManager = sshManager,
+            serviceStatus = serviceStatus,
+            onRefreshStatus = {
+                scope.launch {
+                    isCheckingService = true
+                    videoRepo.isStreamRunning().fold(
+                        onSuccess = { running ->
+                            serviceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
+                        },
+                        onFailure = {
+                            serviceStatus = ServiceStatus.ERROR
+                        }
+                    )
+                    isCheckingService = false
+                }
+            },
+            onStartService = {
+                scope.launch {
+                    serviceStatus = ServiceStatus.STARTING
+                    videoRepo.enableStream(camera.key).fold(
+                        onSuccess = {
+                            serviceStatus = ServiceStatus.RUNNING
+                            retryKey++ // 触发重新连接
+                        },
+                        onFailure = {
+                            serviceStatus = ServiceStatus.ERROR
+                            error = "启动服务失败: ${it.message}"
+                        }
+                    )
+                }
+            },
+            onStopService = {
+                scope.launch {
+                    videoRepo.disableStream()
+                    serviceStatus = ServiceStatus.STOPPED
+                    frameBitmap = null
+                }
+            }
         )
 
         Spacer(Modifier.height(16.dp))
@@ -238,7 +301,7 @@ fun VideoScreen(
                         bitmap = frameBitmap,
                         hudData = if (showHud) hudData else null,
                         camera = camera,
-                        isStarting = isStarting,
+                        serviceStatus = serviceStatus,
                         fps = fps,
                         c3Ip = c3Ip,
                         showHud = showHud,
@@ -295,16 +358,22 @@ private fun fetchJpegFrame(urlStr: String): Bitmap? {
 private fun CameraSelector(
     selected: CameraType,
     onSelect: (CameraType) -> Unit,
-    sshManager: SshManager
+    sshManager: SshManager,
+    serviceStatus: ServiceStatus,
+    onRefreshStatus: () -> Unit,
+    onStartService: () -> Unit,
+    onStopService: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var showDiagnostics by remember { mutableStateOf(false) }
+    var showServiceMenu by remember { mutableStateOf(false) }
     
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 摄像头切换按钮
+        // 摄像头切换按钮 + 状态指示灯
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -320,34 +389,53 @@ private fun CameraSelector(
                     color = if (isSel) Teal500 else Color.Transparent,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelect(c) }
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            c.title,
-                            color = if (isSel) Color.White else Slate700,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            c.desc,
-                            color = if (isSel) Color(0xFFCCFBF1) else Slate400,
-                            fontSize = 11.sp
+                        Column {
+                            Text(
+                                c.title,
+                                color = if (isSel) Color.White else Slate700,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                c.desc,
+                                color = if (isSel) Color(0xFFCCFBF1) else Slate400,
+                                fontSize = 11.sp
+                            )
+                        }
+                        // 状态指示灯
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when (serviceStatus) {
+                                        ServiceStatus.RUNNING -> Color(0xFF10B981)  // 绿色
+                                        ServiceStatus.STOPPED -> Color(0xFFEF4444)  // 红色
+                                        ServiceStatus.STARTING -> Color(0xFFF59E0B) // 黄色
+                                        ServiceStatus.ERROR -> Color(0xFF6B7280)    // 灰色
+                                        ServiceStatus.UNKNOWN -> Color(0xFF6B7280)  // 灰色
+                                    }
+                                )
                         )
                     }
                 }
             }
         }
         
-        // 设置/诊断按钮
+        // 设置/服务控制按钮
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = Slate100,
-            modifier = Modifier.clickable { showDiagnostics = true }
+            modifier = Modifier.clickable { showServiceMenu = true }
         ) {
             Box(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 20.dp),
@@ -355,12 +443,28 @@ private fun CameraSelector(
             ) {
                 Icon(
                     Icons.Filled.Settings,
-                    contentDescription = "诊断设置",
+                    contentDescription = "服务控制",
                     tint = Slate700,
                     modifier = Modifier.size(24.dp)
                 )
             }
         }
+    }
+    
+    // 服务控制菜单
+    if (showServiceMenu) {
+        ServiceControlDialog(
+            serviceStatus = serviceStatus,
+            onDismiss = { showServiceMenu = false },
+            onRefreshStatus = onRefreshStatus,
+            onStartService = onStartService,
+            onStopService = onStopService,
+            onShowDiagnostics = {
+                showServiceMenu = false
+                showDiagnostics = true
+            },
+            sshManager = sshManager
+        )
     }
     
     // 诊断对话框
@@ -377,7 +481,7 @@ private fun VideoCard(
     bitmap: Bitmap?,
     hudData: HudData?,
     camera: CameraType,
-    isStarting: Boolean,
+    serviceStatus: ServiceStatus,
     fps: Int,
     c3Ip: String,
     showHud: Boolean,
@@ -477,7 +581,7 @@ private fun VideoCard(
                 }
             }
 
-            if (isStarting || bitmap == null) {
+            if (serviceStatus != ServiceStatus.RUNNING || bitmap == null) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(
                         color = Teal500,
@@ -486,12 +590,16 @@ private fun VideoCard(
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        when {
-                            isStarting -> "正在启动 ${camera.title} 流..."
-                            else -> "正在连接 ${camera.title}..."
+                        when (serviceStatus) {
+                            ServiceStatus.STARTING -> "正在启动服务..."
+                            ServiceStatus.STOPPED -> "服务未运行\n请点击设置按钮启动服务"
+                            ServiceStatus.RUNNING -> "正在连接 ${camera.title}..."
+                            ServiceStatus.ERROR -> "服务异常\n请运行诊断检查"
+                            ServiceStatus.UNKNOWN -> "正在检查服务状态..."
                         },
                         color = Slate400,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(c3Ip, color = Slate600, fontSize = 12.sp)
@@ -959,4 +1067,156 @@ private fun InfoRow(label: String, value: String) {
             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
         )
     }
+}
+
+@Composable
+private fun ServiceControlDialog(
+    serviceStatus: ServiceStatus,
+    onDismiss: () -> Unit,
+    onRefreshStatus: () -> Unit,
+    onStartService: () -> Unit,
+    onStopService: () -> Unit,
+    onShowDiagnostics: () -> Unit,
+    sshManager: SshManager
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = null,
+                    tint = Teal500,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("服务控制", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 服务状态显示
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = when (serviceStatus) {
+                        ServiceStatus.RUNNING -> Color(0xFFD1FAE5)  // 绿色背景
+                        ServiceStatus.STOPPED -> Color(0xFFFEE2E2)  // 红色背景
+                        ServiceStatus.STARTING -> Color(0xFFFEF3C7) // 黄色背景
+                        else -> Slate100
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "服务状态",
+                                fontSize = 12.sp,
+                                color = Slate500
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                when (serviceStatus) {
+                                    ServiceStatus.RUNNING -> "✓ 运行中"
+                                    ServiceStatus.STOPPED -> "✗ 已停止"
+                                    ServiceStatus.STARTING -> "⟳ 启动中"
+                                    ServiceStatus.ERROR -> "⚠ 错误"
+                                    ServiceStatus.UNKNOWN -> "? 未知"
+                                },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (serviceStatus) {
+                                    ServiceStatus.RUNNING -> Color(0xFF10B981)
+                                    ServiceStatus.STOPPED -> Color(0xFFEF4444)
+                                    ServiceStatus.STARTING -> Color(0xFFF59E0B)
+                                    else -> Slate700
+                                }
+                            )
+                        }
+                        
+                        // 刷新按钮
+                        IconButton(onClick = onRefreshStatus) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "刷新状态",
+                                tint = Teal500
+                            )
+                        }
+                    }
+                }
+                
+                Divider(color = Slate200)
+                
+                // 控制按钮
+                Text(
+                    "服务控制",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Slate900
+                )
+                
+                // 启动服务按钮
+                Button(
+                    onClick = onStartService,
+                    enabled = serviceStatus == ServiceStatus.STOPPED,
+                    colors = ButtonDefaults.buttonColors(containerColor = Green500),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("启动服务")
+                }
+                
+                // 停止服务按钮
+                Button(
+                    onClick = onStopService,
+                    enabled = serviceStatus == ServiceStatus.RUNNING,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Filled.Stop,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("停止服务")
+                }
+                
+                Divider(color = Slate200)
+                
+                // 诊断按钮
+                OutlinedButton(
+                    onClick = onShowDiagnostics,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Teal500),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Filled.BugReport,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("运行诊断")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭", color = Teal500)
+            }
+        },
+        modifier = Modifier.widthIn(max = 400.dp)
+    )
 }

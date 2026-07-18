@@ -27,30 +27,38 @@ class VideoStreamRepository(
         private const val OPENPILOT = "/data/openpilot"
     }
 
-    /** 开启 C3 端摄像头流 + 部署 MJPEG 服务器 */
+    /** 开启 C3 端摄像头流 + 部署 MJPEG 服务器（智能启动，不杀现有进程） */
     suspend fun enableStream(camera: String = "road"): Result<Unit> {
         // 0. 确保目录存在
         sshManager.executeCommand("mkdir -p /data/spapp/spyl/log")
         
-        // 1. 开启 stream_encoderd (产生 H264 帧)
+        // 1. 先检查服务是否已经在运行
+        val running = isStreamRunning().getOrDefault(false)
+        if (running) {
+            Log.d(TAG, "MJPEG server already running, skipping startup")
+            // 服务已运行，只需要开启 stream_encoderd
+            val valStr = "1"
+            val enableCmd = "echo -n '$valStr' > /data/params/d/WebrtcStreamEnabled && " +
+                    "echo -n '$valStr' > /data/params/d/IsDriverViewEnabled"
+            sshManager.executeCommand(enableCmd)
+            return Result.success(Unit)
+        }
+        
+        // 2. 服务未运行，开启 stream_encoderd (产生 H264 帧)
         val valStr = "1"
         val enableCmd = "echo -n '$valStr' > /data/params/d/WebrtcStreamEnabled && " +
                 "echo -n '$valStr' > /data/params/d/IsDriverViewEnabled"
         sshManager.executeCommand(enableCmd)
 
-        // 2. 部署 MJPEG 脚本
+        // 3. 部署 MJPEG 脚本
         val deployed = isScriptDeployed().getOrDefault(false)
         if (!deployed) {
             deployScript().getOrElse { return Result.failure(it) }
         }
 
-        // 3. 杀旧进程 + 启动新进程（使用 Python 虚拟环境）
+        // 4. 启动新进程（不杀旧进程）
         val cameraArg = if (camera == "wideRoad") "wideRoad" else "road"
         val startCmd = buildString {
-            // 先彻底清理旧进程
-            append("pkill -9 -f mjpeg_stream 2>/dev/null; ")
-            append("sleep 1; ")
-            
             // 启动新进程
             append("cd $OPENPILOT && ")
             append(". /usr/local/venv/bin/activate && ")  // 激活虚拟环境
@@ -89,6 +97,15 @@ class VideoStreamRepository(
         )
         
         return Result.success(Unit)
+    }
+    
+    /** 强制重启服务（用于设置菜单中的手动控制） */
+    suspend fun restartStream(camera: String = "road"): Result<Unit> {
+        // 先停止
+        disableStream()
+        kotlinx.coroutines.delay(1000)
+        // 再启动
+        return enableStream(camera)
     }
 
     /** 关闭 C3 端摄像头流 + MJPEG 服务器 */
