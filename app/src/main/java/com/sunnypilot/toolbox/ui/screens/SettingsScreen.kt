@@ -113,46 +113,15 @@ fun SettingsScreen(
 
     Box(modifier = modifier.fillMaxSize().background(Slate50)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 标题栏（精简版）
-            Surface(color = Color.White, shadowElevation = 2.dp) {
-                Column {
-                    // 标题行
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Tune,
-                            contentDescription = null,
-                            tint = Teal500,
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            "驾驶设置",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Slate900
-                        )
-                        Spacer(Modifier.weight(1f))
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = Teal500,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                    
-                    // 横向滚动分类标签（带刷新按钮）
-                    CategoryTabsRowWithRefresh(
-                        categories = allCategories,
-                        selectedCategory = selectedCategory ?: "全部",
-                        onCategoryClick = { selectedCategory = it },
-                        isLoading = isLoading,
-                        onRefresh = { loadSettings() }
-                    )
-                }
+            // 现代风格标签栏
+            Surface(color = Color.White, shadowElevation = 1.dp) {
+                CategoryTabsModern(
+                    categories = allCategories,
+                    selectedCategory = selectedCategory ?: "全部",
+                    onCategoryClick = { selectedCategory = it },
+                    isLoading = isLoading,
+                    onRefresh = { loadSettings() }
+                )
             }
 
             // 内容区域
@@ -191,9 +160,9 @@ fun SettingsScreen(
     }
 }
 
-// 横向滚动分类标签（带刷新按钮）
+// 现代风格标签栏
 @Composable
-private fun CategoryTabsRowWithRefresh(
+private fun CategoryTabsModern(
     categories: List<String>,
     selectedCategory: String,
     onCategoryClick: (String) -> Unit,
@@ -201,7 +170,9 @@ private fun CategoryTabsRowWithRefresh(
     onRefresh: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 标签滚动区域
@@ -209,8 +180,8 @@ private fun CategoryTabsRowWithRefresh(
             modifier = Modifier
                 .weight(1f)
                 .horizontalScroll(rememberScrollState())
-                .padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(start = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             categories.forEach { category ->
                 val isSelected = category == selectedCategory
@@ -225,28 +196,30 @@ private fun CategoryTabsRowWithRefresh(
                     else -> categoryColors[category] ?: Slate500
                 }
                 
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) color else Color.Transparent,
-                    border = BorderStroke(1.5.dp, if (isSelected) Color.Transparent else color.copy(alpha = 0.3f)),
-                    modifier = Modifier.clickable { onCategoryClick(category) }
+                // 现代扁平风格标签
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) color else Slate100)
+                        .clickable { onCategoryClick(category) }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             icon,
                             contentDescription = null,
-                            tint = if (isSelected) Color.White else color,
-                            modifier = Modifier.size(16.dp)
+                            tint = if (isSelected) Color.White else Slate600,
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(5.dp))
                         Text(
                             category,
                             fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (isSelected) Color.White else color
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else Slate700
                         )
                     }
                 }
@@ -254,28 +227,30 @@ private fun CategoryTabsRowWithRefresh(
         }
         
         // 刷新按钮
-        if (!isLoading) {
-            IconButton(
-                onClick = onRefresh,
-                modifier = Modifier.padding(end = 8.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = "刷新",
-                    tint = Teal500,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        } else {
-            Box(
-                modifier = Modifier.padding(end = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(20.dp),
-                    color = Teal500
-                )
+        Box(modifier = Modifier.padding(horizontal = 12.dp)) {
+            if (!isLoading) {
+                IconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "刷新",
+                        tint = Slate600,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.size(36.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp),
+                        color = Teal500
+                    )
+                }
             }
         }
     }
@@ -919,12 +894,13 @@ private fun ModelSelectionView(sshManager: SshManager) {
         scope.launch {
             isLoading = true
             error = null
-            sshManager.executeCommand("cat /data/params/d/DrivingModel").fold(
+            // 使用 Params 类读取，如果不存在则使用默认值
+            sshManager.executeCommand("cd /data/openpilot && python3 -c \"from common.params import Params; print(Params().get('Model', encoding='utf-8') or 'supercombo.onnx')\"").fold(
                 onSuccess = { output -> 
                     currentModel = output.trim()
                 },
                 onFailure = { e -> 
-                    error = e.message
+                    error = "读取失败: ${e.message}"
                     currentModel = null
                 }
             )
@@ -934,12 +910,14 @@ private fun ModelSelectionView(sshManager: SshManager) {
     
     fun loadAvailableModels() {
         scope.launch {
-            sshManager.executeCommand("ls /data/models").fold(
+            sshManager.executeCommand("ls /data/models 2>/dev/null || echo 'supercombo.onnx'").fold(
                 onSuccess = { output ->
-                    availableModels = output.trim().split("\n").filter { it.isNotBlank() }
+                    availableModels = output.trim().split("\n")
+                        .filter { it.isNotBlank() && (it.endsWith(".onnx") || it.endsWith(".dlc")) }
+                        .sorted()
                 },
                 onFailure = { e ->
-                    availableModels = emptyList()
+                    availableModels = listOf("supercombo.onnx")
                 }
             )
         }
@@ -948,10 +926,10 @@ private fun ModelSelectionView(sshManager: SshManager) {
     fun switchModel(model: String) {
         scope.launch {
             isSwitching = true
-            sshManager.executeCommand("echo -n '$model' > /data/params/d/DrivingModel").fold(
+            sshManager.executeCommand("cd /data/openpilot && python3 -c \"from common.params import Params; Params().put('Model', '$model')\"").fold(
                 onSuccess = {
                     currentModel = model
-                    Toast.makeText(context, "模型已切换到: $model", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "模型已切换: $model\n重启 openpilot 后生效", Toast.LENGTH_LONG).show()
                 },
                 onFailure = { e ->
                     Toast.makeText(context, "切换失败: ${e.message}", Toast.LENGTH_SHORT).show()
