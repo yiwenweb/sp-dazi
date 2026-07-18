@@ -78,10 +78,8 @@ class H264Decoder(
             // 创建解码器
             codec = MediaCodec.createDecoderByType(MIME_TYPE).apply {
                 val format = MediaFormat.createVideoFormat(MIME_TYPE, width, height).apply {
-                    setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodec.INFO_FORMAT_UNKNOWN)
                     setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
-                    setInteger(MediaFormat.KEY_PROFILE, profile)
-                    setInteger(MediaFormat.KEY_LEVEL, level)
+                    setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
                 }
 
                 // 配置解码器，输出到 Surface

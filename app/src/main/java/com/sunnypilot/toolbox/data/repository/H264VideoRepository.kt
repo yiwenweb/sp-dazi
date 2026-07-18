@@ -58,7 +58,7 @@ class H264VideoRepository(
         onError: (String) -> Unit = {}
     ) {
         // 如果已连接且摄像头相同，不需要重连
-        if (currentCamera.get() == camera && ws?.serverResponse?.code() == 101) {
+        if (currentCamera.get() == camera && ws != null) {
             return
         }
 
@@ -203,7 +203,7 @@ class H264VideoRepository(
         
         return if (result.isSuccess) {
             val output = result.getOrNull()
-            if (output.contains("started")) {
+            if (output?.contains("started") == true) {
                 Log.d(TAG, "H264 forward service started successfully")
                 Result.success(Unit)
             } else {
