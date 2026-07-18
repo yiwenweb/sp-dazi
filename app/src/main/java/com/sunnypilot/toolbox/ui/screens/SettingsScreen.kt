@@ -36,7 +36,7 @@ import com.sunnypilot.toolbox.model.valueAsFloat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// 现代化配�?- 统一 App 风格
+// 现代化配色 - 统一 App 风格
 private val Slate50 = Color(0xFFF8FAFC)
 private val Slate100 = Color(0xFFF1F5F9)
 private val Slate200 = Color(0xFFE2E8F0)
@@ -52,9 +52,9 @@ private val Red500 = Color(0xFFEF4444)
 private val Amber500 = Color(0xFFF59E0B)
 private val Blue500 = Color(0xFF3B82F6)
 
-// 分类图标映射 - 更现代化的图�?
+// 分类图标映射 - 更现代化的图标
 private val categoryIcons = mapOf(
-    "驾驶开�? to Icons.Filled.ToggleOn,
+    "驾驶开关" to Icons.Filled.ToggleOn,
     "驾驶风格" to Icons.Filled.DriveEta,
     "转向设置" to Icons.Filled.AutoMode,
     "巡航设置" to Icons.Filled.Speed,
@@ -65,7 +65,7 @@ private val categoryIcons = mapOf(
 
 // 分类颜色映射
 private val categoryColors = mapOf(
-    "驾驶开�? to Blue500,
+    "驾驶开关" to Blue500,
     "驾驶风格" to Teal500,
     "转向设置" to Amber500,
     "巡航设置" to Green500,
@@ -107,14 +107,14 @@ fun SettingsScreen(
         settings.groupBy { it.category ?: "其他" }
     }
     
-    // 所有分类（包括"全部"�?模型"�?
+    // 所有分类（包括"全部"、"模型"）
     val allCategories = remember(grouped) {
         listOf("全部") + grouped.keys.sorted() + "模型"
     }
 
     Box(modifier = modifier.fillMaxSize().background(Slate50)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 现代风格标签�?
+            // 现代风格标签栏
             Surface(color = Color.White, shadowElevation = 1.dp) {
                 CategoryTabsModern(
                     categories = allCategories,
@@ -161,7 +161,7 @@ fun SettingsScreen(
     }
 }
 
-// 现代风格标签�?
+// 现代风格标签栏
 @Composable
 private fun CategoryTabsModern(
     categories: List<String>,
@@ -257,7 +257,7 @@ private fun CategoryTabsModern(
     }
 }
 
-// 全部设置视图（显示所有分类的设置�?
+// 全部设置视图（显示所有分类的设置）
 @Composable
 private fun AllSettingsView(
     grouped: Map<String, List<C3SettingMeta>>,
@@ -316,7 +316,7 @@ private fun AllSettingsView(
     }
 }
 
-// 分类区块（用�?全部"视图�?
+// 分类区块（用于"全部"视图）
 @Composable
 private fun CategorySection(
     category: String,
@@ -352,7 +352,7 @@ private fun CategorySection(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "${settings.size}�?,
+                "${settings.size} 项",
                 fontSize = 12.sp,
                 color = Slate500
             )
@@ -496,7 +496,7 @@ private fun CategoryCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "$itemCount 项设�?,
+                    "$itemCount 项设置",
                     fontSize = 13.sp,
                     color = Slate500
                 )
@@ -513,7 +513,7 @@ private fun CategoryCard(
     }
 }
 
-// 分类详情�?
+// 分类详情页
 @Composable
 private fun CategoryDetailScreen(
     category: String,
@@ -530,7 +530,7 @@ private fun CategoryDetailScreen(
     val color = categoryColors[category] ?: Slate500
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // 标题�?
+        // 标题栏
         Surface(color = Color.White, shadowElevation = 2.dp) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -556,7 +556,7 @@ private fun CategoryDetailScreen(
                         color = Slate900
                     )
                     Text(
-                        "${settings.size} 项设�?· 修改后立即同�?,
+                        "${settings.size} 项设置 · 修改后立即同步",
                         fontSize = 11.sp,
                         color = Slate500
                     )
@@ -574,7 +574,7 @@ private fun CategoryDetailScreen(
             val boolSettings = settings.filter { it.type == "bool" }
             val otherSettings = settings.filter { it.type != "bool" }
 
-            // Bool 开�?- 2列网�?
+            // Bool 开关 - 2列网格
             if (boolSettings.isNotEmpty()) {
                 boolSettings.chunked(2).forEach { rowItems ->
                     Row(
@@ -665,7 +665,7 @@ private fun CategoryDetailScreen(
     }
 }
 
-// Bool 开关卡�?- 紧凑�?
+// Bool 开关卡片 - 紧凑型
 @Composable
 private fun BoolSettingCard(
     setting: C3SettingMeta,
@@ -893,7 +893,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
         scope.launch {
             isLoading = true
             
-            // 读取当前激活的模型�?
+            // 读取当前激活的模型名
             sshManager.executeCommand("cat /data/params/d/ModelManager_ActiveBundle 2>/dev/null || echo ''").fold(
                 onSuccess = { output -> 
                     activeBundle = output.trim().ifEmpty { "Default (Stock)" }
@@ -948,7 +948,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    "模型管理功能请在 C3 设备上操�?,
+                    "模型管理功能请在 C3 设备上操作",
                     fontSize = 13.sp,
                     color = Color(0xFF92400E), // Amber900
                     lineHeight = 18.sp
@@ -1002,7 +1002,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
                     )
                 } else {
                     Text(
-                        "读取�?..",
+                        "读取中...",
                         fontSize = 14.sp,
                         color = Slate500
                     )
@@ -1010,9 +1010,9 @@ private fun ModelSelectionView(sshManager: SshManager) {
             }
         }
         
-        // 已下载模型列�?
+        // 已下载模型列表
         Text(
-            "已下载模型文�?(${downloadedModels.size})",
+            "已下载模型文件 (${downloadedModels.size})",
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             color = Slate900
@@ -1038,7 +1038,7 @@ private fun ModelSelectionView(sshManager: SshManager) {
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            "未找到已下载的模型文�?,
+                            "未找到已下载的模型文件",
                             fontSize = 14.sp,
                             color = Slate500,
                             textAlign = TextAlign.Center
