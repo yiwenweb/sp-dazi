@@ -1354,7 +1354,7 @@ private fun ServiceCard(
                             color = Slate500
                         )
                     }
-                </Row>
+            }
                 
                 Text(
                     when (status) {
