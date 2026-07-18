@@ -2,7 +2,9 @@ package com.sunnypilot.toolbox.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,7 +86,7 @@ fun SettingsScreen(
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var selectedCategory by remember { mutableStateOf<String?>("全部") }
 
     fun loadSettings() {
         scope.launch {
@@ -103,51 +105,345 @@ fun SettingsScreen(
     val grouped = remember(settings) {
         settings.groupBy { it.category ?: "其他" }
     }
+    
+    // 所有分类（包括"全部"和"模型"）
+    val allCategories = remember(grouped) {
+        listOf("全部") + grouped.keys.sorted() + "模型"
+    }
 
     Box(modifier = modifier.fillMaxSize().background(Slate50)) {
-        if (selectedCategory == null) {
-            // 主页：显示所有分类
-            CategoryListScreen(
-                grouped = grouped,
-                isLoading = isLoading,
-                error = error,
-                onCategoryClick = { category -> selectedCategory = category },
-                onRefresh = { loadSettings() }
-            )
-        } else {
-            // 分类详情页
-            CategoryDetailScreen(
-                category = selectedCategory!!,
-                settings = grouped[selectedCategory] ?: emptyList(),
-                repository = repository,
-                pendingKeys = pendingKeys,
-                onBack = { selectedCategory = null },
-                onPendingChange = { key, isPending ->
-                    pendingKeys = if (isPending) pendingKeys + key else pendingKeys - key
-                },
-                onSettingChanged = { loadSettings() }
-            )
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 标题栏
+            Surface(color = Color.White, shadowElevation = 2.dp) {
+                Column {
+                    // 标题行
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Tune,
+                            contentDescription = null,
+                            tint = Teal500,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "驾驶设置",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Slate900
+                            )
+                            Text(
+                                "点击分类查看详细设置",
+                                fontSize = 11.sp,
+                                color = Slate500
+                            )
+                        }
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = Teal500,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            IconButton(onClick = { loadSettings() }) {
+                                Icon(Icons.Filled.Refresh, "刷新", tint = Teal500)
+                            }
+                        }
+                    }
+                    
+                    // 横向滚动分类标签
+                    CategoryTabsRow(
+                        categories = allCategories,
+                        selectedCategory = selectedCategory ?: "全部",
+                        onCategoryClick = { selectedCategory = it }
+                    )
+                }
+            }
+
+            // 内容区域
+            when (selectedCategory) {
+                "全部" -> {
+                    AllSettingsView(
+                        grouped = grouped,
+                        error = error,
+                        repository = repository,
+                        pendingKeys = pendingKeys,
+                        onPendingChange = { key, isPending ->
+                            pendingKeys = if (isPending) pendingKeys + key else pendingKeys - key
+                        },
+                        onSettingChanged = { loadSettings() },
+                        onRefresh = { loadSettings() }
+                    )
+                }
+                "模型" -> {
+                    ModelSelectionView(sshManager = sshManager)
+                }
+                else -> {
+                    CategoryDetailScreen(
+                        category = selectedCategory!!,
+                        settings = grouped[selectedCategory] ?: emptyList(),
+                        repository = repository,
+                        pendingKeys = pendingKeys,
+                        onBack = { selectedCategory = "全部" },
+                        onPendingChange = { key, isPending ->
+                            pendingKeys = if (isPending) pendingKeys + key else pendingKeys - key
+                        },
+                        onSettingChanged = { loadSettings() }
+                    )
+                }
+            }
         }
     }
 }
 
-// 分类列表主页
+// 横向滚动分类标签
 @Composable
-private fun CategoryListScreen(
+private fun CategoryTabsRow(
+    categories: List<String>,
+    selectedCategory: String,
+    onCategoryClick: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        categories.forEach { category ->
+            val isSelected = category == selectedCategory
+            val icon = when (category) {
+                "全部" -> Icons.Filled.Apps
+                "模型" -> Icons.Filled.Psychology
+                else -> categoryIcons[category] ?: Icons.Filled.Settings
+            }
+            val color = when (category) {
+                "全部" -> Teal500
+                "模型" -> Color(0xFF9333EA) // Purple600
+                else -> categoryColors[category] ?: Slate500
+            }
+            
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (isSelected) color else Color.Transparent,
+                border = BorderStroke(1.5.dp, if (isSelected) Color.Transparent else color.copy(alpha = 0.3f)),
+                modifier = Modifier.clickable { onCategoryClick(category) }
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = if (isSelected) Color.White else color,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        category,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) Color.White else color
+                    )
+                }
+            }
+        }
+    }
+}
+
+// 全部设置视图（显示所有分类的设置）
+@Composable
+private fun AllSettingsView(
     grouped: Map<String, List<C3SettingMeta>>,
-    isLoading: Boolean,
     error: String?,
-    onCategoryClick: (String) -> Unit,
+    repository: SettingsRepository,
+    pendingKeys: Set<String>,
+    onPendingChange: (String, Boolean) -> Unit,
+    onSettingChanged: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // 标题栏
-        Surface(color = Color.White, shadowElevation = 2.dp) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Tune,
-                        contentDescription = null,
+    if (error != null && grouped.isEmpty()) {
+        Box(
+            Modifier.fillMaxSize().padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Filled.ErrorOutline,
+                    contentDescription = null,
+                    tint = Red500,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("读取设置失败", color = Slate900, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(8.dp))
+                Text(error, color = Slate500, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal500)
+                ) {
+                    Text("重试")
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            grouped.forEach { (category, items) ->
+                CategorySection(
+                    category = category,
+                    settings = items,
+                    repository = repository,
+                    pendingKeys = pendingKeys,
+                    onPendingChange = onPendingChange,
+                    onSettingChanged = onSettingChanged
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+// 分类区块（用于"全部"视图）
+@Composable
+private fun CategorySection(
+    category: String,
+    settings: List<C3SettingMeta>,
+    repository: SettingsRepository,
+    pendingKeys: Set<String>,
+    onPendingChange: (String, Boolean) -> Unit,
+    onSettingChanged: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val icon = categoryIcons[category] ?: Icons.Filled.Settings
+    val color = categoryColors[category] ?: Slate500
+    
+    Column {
+        // 分类标题
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                category,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Slate900
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${settings.size}项",
+                fontSize = 12.sp,
+                color = Slate500
+            )
+        }
+        
+        // 设置列表
+        val boolSettings = settings.filter { it.type == "bool" }
+        val otherSettings = settings.filter { it.type != "bool" }
+        
+        if (boolSettings.isNotEmpty()) {
+            boolSettings.chunked(2).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowItems.forEach { setting ->
+                        BoolSettingCard(
+                            setting = setting,
+                            isPending = pendingKeys.contains(setting.key),
+                            modifier = Modifier.weight(1f),
+                            onValueChanged = { newValue ->
+                                onPendingChange(setting.key, true)
+                                scope.launch {
+                                    repository.setSetting(setting.key, newValue).fold(
+                                        onSuccess = { result ->
+                                            onPendingChange(setting.key, false)
+                                            if (result.error != null) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "${setting.title}: ${result.error}",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            delay(200)
+                                            onSettingChanged()
+                                        },
+                                        onFailure = { e ->
+                                            onPendingChange(setting.key, false)
+                                            Toast.makeText(
+                                                context,
+                                                "${setting.title}: ${e.message}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    if (rowItems.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        
+        otherSettings.forEach { setting ->
+            ComplexSettingCard(
+                setting = setting,
+                isPending = pendingKeys.contains(setting.key),
+                onValueChanged = { newValue ->
+                    onPendingChange(setting.key, true)
+                    scope.launch {
+                        repository.setSetting(setting.key, newValue).fold(
+                            onSuccess = { result ->
+                                onPendingChange(setting.key, false)
+                                if (result.error != null) {
+                                    Toast.makeText(
+                                        context,
+                                        "${setting.title}: ${result.error}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                delay(200)
+                                onSettingChanged()
+                            },
+                            onFailure = { e ->
+                                onPendingChange(setting.key, false)
+                                Toast.makeText(
+                                    context,
+                                    "${setting.title}: ${e.message}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+                }
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
                         tint = Teal500,
                         modifier = Modifier.size(28.dp)
                     )
@@ -662,5 +958,229 @@ private fun ComplexSettingCard(
                 }
             }
         }
+    }
+}
+
+
+// 模型选择视图
+@Composable
+private fun ModelSelectionView(sshManager: SshManager) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    var currentModel by remember { mutableStateOf<String?>(null) }
+    var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var isSwitching by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    
+    fun loadCurrentModel() {
+        scope.launch {
+            isLoading = true
+            error = null
+            sshManager.executeCommand("cat /data/params/d/DrivingModel").fold(
+                onSuccess = { output -> 
+                    currentModel = output.trim()
+                },
+                onFailure = { e -> 
+                    error = e.message
+                    currentModel = null
+                }
+            )
+            isLoading = false
+        }
+    }
+    
+    fun loadAvailableModels() {
+        scope.launch {
+            sshManager.executeCommand("ls /data/models").fold(
+                onSuccess = { output ->
+                    availableModels = output.trim().split("\n").filter { it.isNotBlank() }
+                },
+                onFailure = { e ->
+                    availableModels = emptyList()
+                }
+            )
+        }
+    }
+    
+    fun switchModel(model: String) {
+        scope.launch {
+            isSwitching = true
+            sshManager.executeCommand("echo -n '$model' > /data/params/d/DrivingModel").fold(
+                onSuccess = {
+                    currentModel = model
+                    Toast.makeText(context, "模型已切换到: $model", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { e ->
+                    Toast.makeText(context, "切换失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            )
+            isSwitching = false
+        }
+    }
+    
+    LaunchedEffect(Unit) {
+        loadCurrentModel()
+        loadAvailableModels()
+    }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 当前模型卡片
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F9FF)), // Blue50
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7), // Sky600
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "当前模型",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Slate900
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp),
+                            color = Color(0xFF0284C7)
+                        )
+                    } else {
+                        IconButton(onClick = { loadCurrentModel() }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Filled.Refresh, "刷新", tint = Color(0xFF0284C7))
+                        }
+                    }
+                }
+                
+                Spacer(Modifier.height(12.dp))
+                
+                if (currentModel != null) {
+                    Text(
+                        currentModel!!,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF0284C7)
+                    )
+                } else {
+                    Text(
+                        error ?: "未知",
+                        fontSize = 14.sp,
+                        color = Slate500
+                    )
+                }
+            }
+        }
+        
+        // 可用模型列表
+        Text(
+            "可用模型",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = Slate900
+        )
+        
+        if (availableModels.isEmpty()) {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Slate50)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Filled.FolderOpen,
+                            contentDescription = null,
+                            tint = Slate400,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "未找到可用模型",
+                            fontSize = 14.sp,
+                            color = Slate500
+                        )
+                    }
+                }
+            }
+        } else {
+            availableModels.forEach { model ->
+                val isCurrent = model == currentModel
+                val isPending = isSwitching && model != currentModel
+                
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isCurrent) Color(0xFFF0FDF4) else Color.White // Green50
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrent) 2.dp else 1.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isCurrent && !isSwitching) {
+                            switchModel(model)
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(
+                            if (isCurrent) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (isCurrent) Green500 else Slate400,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            model,
+                            fontSize = 15.sp,
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isCurrent) Green500 else Slate900,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (isPending) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp),
+                                color = Teal500
+                            )
+                        } else if (isCurrent) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Green500.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    "使用中",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Green500,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Spacer(Modifier.height(16.dp))
     }
 }
