@@ -88,21 +88,29 @@ fun VideoScreen(
         Log.d("VideoScreen", "Starting MJPEG stream, camera=$camera, ip=$c3Ip")
         videoRepo.enableStream(camera.key).fold(
             onSuccess = {
-                // 等待 MJPEG 服务器启动
-                delay(2000)
+                Log.d("VideoScreen", "MJPEG stream command sent, waiting for startup...")
+                // 等待 MJPEG 服务器启动（增加到4秒）
+                delay(4000)
                 isStarting = false
+                Log.d("VideoScreen", "MJPEG stream should be ready now")
             },
             onFailure = { e ->
-                error = "启动视频流失败: ${e.message}"
+                error = "启动视频流失败: ${e.message}\n\n建议：\n1. 点击设置图标运行诊断\n2. 尝试重新部署脚本\n3. 检查C3设备是否已启动车辆"
                 isStarting = false
+                Log.e("VideoScreen", "Failed to enable stream", e)
             }
         )
         
         // 启动HUD服务器
         Log.d("VideoScreen", "Starting HUD server")
         hudRepo.startHudServer().fold(
-            onSuccess = { Log.d("VideoScreen", "HUD server started") },
-            onFailure = { Log.w("VideoScreen", "HUD server start failed: ${it.message}") }
+            onSuccess = { 
+                Log.d("VideoScreen", "HUD server command sent") 
+                delay(2000)  // 等待HUD服务器启动
+            },
+            onFailure = { 
+                Log.w("VideoScreen", "HUD server start failed: ${it.message}") 
+            }
         )
     }
 
@@ -142,6 +150,7 @@ fun VideoScreen(
         var frameCount = 0
         var fpsTimer = System.currentTimeMillis()
         var consecutiveErrors = 0
+        var lastSuccessTime = System.currentTimeMillis()
 
         while (true) {
             try {
@@ -151,17 +160,22 @@ fun VideoScreen(
                 if (bitmap != null) {
                     frameBitmap = bitmap
                     consecutiveErrors = 0
+                    lastSuccessTime = System.currentTimeMillis()
                     frameCount++
                     val now = System.currentTimeMillis()
                     if (now - fpsTimer >= 1000) {
                         fps = frameCount
                         frameCount = 0
                         fpsTimer = now
+                        Log.d("VideoScreen", "FPS: $fps")
                     }
                 } else {
                     consecutiveErrors++
-                    if (consecutiveErrors > 10) {
-                        error = "无法获取视频帧\n（确认车辆已启动且摄像头流已开启）"
+                    val timeSinceSuccess = System.currentTimeMillis() - lastSuccessTime
+                    Log.w("VideoScreen", "Failed to fetch frame (errors: $consecutiveErrors, time since success: ${timeSinceSuccess}ms)")
+                    
+                    if (consecutiveErrors > 10 && timeSinceSuccess > 3000) {
+                        error = "无法获取视频帧\n\n可能原因：\n1. MJPEG服务未启动\n2. 车辆未启动\n3. 网络连接问题\n\n建议：点击设置图标运行诊断"
                         break
                     }
                 }
@@ -169,8 +183,9 @@ fun VideoScreen(
                 throw e
             } catch (e: Exception) {
                 consecutiveErrors++
+                Log.e("VideoScreen", "Frame fetch exception (errors: $consecutiveErrors)", e)
                 if (consecutiveErrors > 15) {
-                    error = "视频流连接失败: ${e.message}"
+                    error = "视频流连接失败: ${e.message}\n\nC3 IP: $c3Ip\n端口: 5002\n\n建议运行诊断检查"
                     break
                 }
             }
@@ -245,14 +260,31 @@ private fun fetchJpegFrame(urlStr: String): Bitmap? {
         conn.readTimeout = 3000
         conn.requestMethod = "GET"
         conn.useCaches = false
+        conn.setRequestProperty("Connection", "close")  // 避免连接复用问题
 
-        if (conn.responseCode != 200) return null
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            Log.w("VideoScreen", "HTTP $responseCode from $urlStr")
+            return null
+        }
 
         val bytes = conn.inputStream.use { it.readBytes() }
-        if (bytes.isEmpty()) return null
+        if (bytes.isEmpty()) {
+            Log.w("VideoScreen", "Empty response from $urlStr")
+            return null
+        }
 
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also {
+            Log.v("VideoScreen", "Frame decoded: ${it.width}x${it.height}, ${bytes.size} bytes")
+        }
+    } catch (e: java.net.SocketTimeoutException) {
+        Log.w("VideoScreen", "Timeout fetching frame from $urlStr")
+        null
+    } catch (e: java.net.ConnectException) {
+        Log.w("VideoScreen", "Connection refused: $urlStr - service not running?")
+        null
     } catch (e: Exception) {
+        Log.w("VideoScreen", "Error fetching frame: ${e.javaClass.simpleName}: ${e.message}")
         null
     } finally {
         conn?.disconnect()

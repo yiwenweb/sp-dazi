@@ -44,14 +44,16 @@ class VideoStreamRepository(
             deployScript().getOrElse { return Result.failure(it) }
         }
 
-        // 3. 杀旧进程 + 启动新进程
+        // 3. 杀旧进程 + 启动新进程（使用 Python 虚拟环境）
         val cameraArg = if (camera == "wideRoad") "wideRoad" else "road"
         val startCmd = buildString {
             append("pkill -f mjpeg_stream 2>/dev/null; ")
             append("cd $OPENPILOT && ")
+            append(". /usr/local/venv/bin/activate && ")  // 激活虚拟环境
             append("export PYTHONPATH=$OPENPILOT && ")
-            append("nohup python3 $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT ")
-            append("> $LOG_DIR/mjpeg_stream.log 2>&1 & echo started")
+            append("nohup python3 $REMOTE_SCRIPT --camera $cameraArg --port $MJPEG_PORT --host 0.0.0.0 ")
+            append("> $LOG_DIR/mjpeg_stream.log 2>&1 & ")
+            append("sleep 1 && echo 'MJPEG server started'")
         }
         return sshManager.executeCommand(startCmd).map { }
     }

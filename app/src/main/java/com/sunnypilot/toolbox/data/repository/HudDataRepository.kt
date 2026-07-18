@@ -70,13 +70,15 @@ class HudDataRepository(
                 deployScript().getOrThrow()
             }
             
-            // 2. 启动服务器
+            // 2. 启动服务器（使用 Python 虚拟环境）
             val startCmd = buildString {
                 append("pkill -f hud_data_server 2>/dev/null; ")
                 append("cd /data/openpilot && ")
+                append(". /usr/local/venv/bin/activate && ")  // 激活虚拟环境
                 append("export PYTHONPATH=/data/openpilot && ")
-                append("nohup python3 $REMOTE_SCRIPT --port $HUD_PORT ")
-                append("> $LOG_DIR/hud_data_server.log 2>&1 & echo started")
+                append("nohup python3 $REMOTE_SCRIPT --port $HUD_PORT --host 0.0.0.0 ")
+                append("> $LOG_DIR/hud_data_server.log 2>&1 & ")
+                append("sleep 1 && echo 'HUD server started'")
             }
             
             sshManager.executeCommand(startCmd).map { }
