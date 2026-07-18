@@ -102,29 +102,37 @@ fun VideoScreen(
         
         isCheckingServices = true
         
-        // 检查MJPEG服务
-        videoRepo.isStreamRunning().fold(
-            onSuccess = { running ->
-                mjpegServiceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
-                Log.d("VideoScreen", "MJPEG service status: $mjpegServiceStatus")
-            },
-            onFailure = {
-                mjpegServiceStatus = ServiceStatus.ERROR
-                Log.e("VideoScreen", "Failed to check MJPEG service status", it)
-            }
-        )
+        // 检查MJPEG服务（带重试，避免网络抖动误判）
+        repeat(3) { attempt ->
+            videoRepo.isStreamRunning().fold(
+                onSuccess = { running ->
+                    mjpegServiceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
+                    Log.d("VideoScreen", "MJPEG service status: $mjpegServiceStatus (attempt ${attempt+1})")
+                },
+                onFailure = {
+                    Log.w("VideoScreen", "isStreamRunning failed (attempt ${attempt+1}): ${it.message}")
+                    if (attempt == 2) mjpegServiceStatus = ServiceStatus.ERROR
+                }
+            )
+            if (mjpegServiceStatus != ServiceStatus.ERROR) break
+            delay(1000)
+        }
         
         // 检查HUD服务
-        hudRepo.isHudRunning().fold(
-            onSuccess = { running ->
-                hudServiceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
-                Log.d("VideoScreen", "HUD service status: $hudServiceStatus")
-            },
-            onFailure = {
-                hudServiceStatus = ServiceStatus.ERROR
-                Log.e("VideoScreen", "Failed to check HUD service status", it)
-            }
-        )
+        repeat(3) { attempt ->
+            hudRepo.isHudRunning().fold(
+                onSuccess = { running ->
+                    hudServiceStatus = if (running) ServiceStatus.RUNNING else ServiceStatus.STOPPED
+                    Log.d("VideoScreen", "HUD service status: $hudServiceStatus (attempt ${attempt+1})")
+                },
+                onFailure = {
+                    Log.w("VideoScreen", "isHudRunning failed (attempt ${attempt+1}): ${it.message}")
+                    if (attempt == 2) hudServiceStatus = ServiceStatus.ERROR
+                }
+            )
+            if (hudServiceStatus != ServiceStatus.ERROR) break
+            delay(1000)
+        }
         
         isCheckingServices = false
     }
@@ -141,9 +149,9 @@ fun VideoScreen(
         Log.d("VideoScreen", "MJPEG service is running, starting video stream for camera=$camera")
     }
     
-    // 仅当HUD服务运行时才获取HUD数据
+    // 仅当HUD服务运行时才获取HUD数据（独立于视频流，不受 error 影响）
     LaunchedEffect(retryKey, hudServiceStatus) {
-        if (c3Ip.isNullOrBlank() || hudServiceStatus != ServiceStatus.RUNNING || error != null) {
+        if (c3Ip.isNullOrBlank() || hudServiceStatus != ServiceStatus.RUNNING) {
             return@LaunchedEffect
         }
         
@@ -241,6 +249,7 @@ fun VideoScreen(
                             mjpegServiceStatus = ServiceStatus.STARTING
                             videoRepo.restartStream(it.key).fold(
                                 onSuccess = {
+                                    delay(2000)  // 等 aiohttp 重新绑定端口
                                     mjpegServiceStatus = ServiceStatus.RUNNING
                                     retryKey++
                                 },
@@ -278,6 +287,8 @@ fun VideoScreen(
                     mjpegServiceStatus = ServiceStatus.STARTING
                     videoRepo.enableStream(camera.key).fold(
                         onSuccess = {
+                            // 等 aiohttp 真正开始监听端口，避免启动后立刻轮询失败
+                            delay(2000)
                             mjpegServiceStatus = ServiceStatus.RUNNING
                             retryKey++
                         },
@@ -337,7 +348,11 @@ fun VideoScreen(
                 }
 
                 error != null -> {
-                    ErrorCard(message = error!!, onRetry = { retryKey++ })
+                    ErrorCard(message = error!!, onRetry = {
+                        error = null
+                        frameBitmap = null
+                        retryKey++
+                    })
                 }
 
                 else -> {
