@@ -747,6 +747,7 @@ private fun DiagnosticsDialog(
                                             val gear = json.substringAfter("\"gear\":\"").substringBefore("\"")
                                             result.append("  档位: $gear\n")
                                         }
+                                        Unit  // 明确返回 Unit
                                     } else {
                                         result.append("⚠ HUD 数据格式异常\n")
                                         result.append("  响应: ${json.take(100)}\n")
