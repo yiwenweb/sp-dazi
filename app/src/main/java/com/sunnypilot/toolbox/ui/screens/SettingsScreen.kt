@@ -113,52 +113,44 @@ fun SettingsScreen(
 
     Box(modifier = modifier.fillMaxSize().background(Slate50)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 标题栏
+            // 标题栏（精简版）
             Surface(color = Color.White, shadowElevation = 2.dp) {
                 Column {
                     // 标题行
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
                         Icon(
                             Icons.Filled.Tune,
                             contentDescription = null,
                             tint = Teal500,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(26.dp)
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "驾驶设置",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Slate900
-                            )
-                            Text(
-                                "点击分类查看详细设置",
-                                fontSize = 11.sp,
-                                color = Slate500
-                            )
-                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "驾驶设置",
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Slate900
+                        )
+                        Spacer(Modifier.weight(1f))
                         if (isLoading) {
                             CircularProgressIndicator(
                                 color = Teal500,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(20.dp)
                             )
-                        } else {
-                            IconButton(onClick = { loadSettings() }) {
-                                Icon(Icons.Filled.Refresh, "刷新", tint = Teal500)
-                            }
                         }
                     }
                     
-                    // 横向滚动分类标签
-                    CategoryTabsRow(
+                    // 横向滚动分类标签（带刷新按钮）
+                    CategoryTabsRowWithRefresh(
                         categories = allCategories,
                         selectedCategory = selectedCategory ?: "全部",
-                        onCategoryClick = { selectedCategory = it }
+                        onCategoryClick = { selectedCategory = it },
+                        isLoading = isLoading,
+                        onRefresh = { loadSettings() }
                     )
                 }
             }
@@ -199,57 +191,91 @@ fun SettingsScreen(
     }
 }
 
-// 横向滚动分类标签
+// 横向滚动分类标签（带刷新按钮）
 @Composable
-private fun CategoryTabsRow(
+private fun CategoryTabsRowWithRefresh(
     categories: List<String>,
     selectedCategory: String,
-    onCategoryClick: (String) -> Unit
+    onCategoryClick: (String) -> Unit,
+    isLoading: Boolean,
+    onRefresh: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        categories.forEach { category ->
-            val isSelected = category == selectedCategory
-            val icon = when (category) {
-                "全部" -> Icons.Filled.Apps
-                "模型" -> Icons.Filled.Psychology
-                else -> categoryIcons[category] ?: Icons.Filled.Settings
-            }
-            val color = when (category) {
-                "全部" -> Teal500
-                "模型" -> Color(0xFF9333EA) // Purple600
-                else -> categoryColors[category] ?: Slate500
-            }
-            
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = if (isSelected) color else Color.Transparent,
-                border = BorderStroke(1.5.dp, if (isSelected) Color.Transparent else color.copy(alpha = 0.3f)),
-                modifier = Modifier.clickable { onCategoryClick(category) }
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = if (isSelected) Color.White else color,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        category,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) Color.White else color
-                    )
+        // 标签滚动区域
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            categories.forEach { category ->
+                val isSelected = category == selectedCategory
+                val icon = when (category) {
+                    "全部" -> Icons.Filled.Apps
+                    "模型" -> Icons.Filled.Psychology
+                    else -> categoryIcons[category] ?: Icons.Filled.Settings
                 }
+                val color = when (category) {
+                    "全部" -> Teal500
+                    "模型" -> Color(0xFF9333EA) // Purple600
+                    else -> categoryColors[category] ?: Slate500
+                }
+                
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (isSelected) color else Color.Transparent,
+                    border = BorderStroke(1.5.dp, if (isSelected) Color.Transparent else color.copy(alpha = 0.3f)),
+                    modifier = Modifier.clickable { onCategoryClick(category) }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            tint = if (isSelected) Color.White else color,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            category,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isSelected) Color.White else color
+                        )
+                    }
+                }
+            }
+        }
+        
+        // 刷新按钮
+        if (!isLoading) {
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier.padding(end = 8.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = "刷新",
+                    tint = Teal500,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier.padding(end = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(20.dp),
+                    color = Teal500
+                )
             }
         }
     }
