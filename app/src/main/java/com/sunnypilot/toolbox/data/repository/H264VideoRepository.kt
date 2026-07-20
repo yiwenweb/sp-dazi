@@ -192,16 +192,21 @@ class H264VideoRepository(
         sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null")
         delay(1000)
 
-        // 启动服务
-        val startCmd = """
-            cd $OPENPILOT && \\
-            . /usr/local/venv/bin/activate && \\
-            export PYTHONPATH=$OPENPILOT && \\
-            nohup python3 $REMOTE_SCRIPT --port $WEBSOCKET_PORT --host 0.0.0.0 \\
-            > $LOG_DIR/h264_forward.log 2>&1 & \\
-            sleep 2 && \\
-            netstat -tuln 2>/dev/null | grep -q :$WEBSOCKET_PORT && echo 'started' || echo 'failed'
-        """.trimIndent()
+        // 启动服务（单行命令，避免三引号字符串里的 \\ 破坏 shell 续行）
+        val startCmd = buildString {
+            append("cd $OPENPILOT && ")
+            append(". /usr/local/venv/bin/activate && ")
+            append("export PYTHONPATH=$OPENPILOT && ")
+            append("nohup python3 $REMOTE_SCRIPT --port $WEBSOCKET_PORT --host 0.0.0.0 ")
+            append("> $LOG_DIR/h264_forward.log 2>&1 & ")
+            append("sleep 2; ")
+            append("if netstat -tuln 2>/dev/null | grep -q :$WEBSOCKET_PORT; then ")
+            append("echo 'started'; ")
+            append("else ")
+            append("echo 'failed'; ")
+            append("tail -n 20 $LOG_DIR/h264_forward.log; ")
+            append("fi")
+        }
 
         val result = sshManager.executeCommand(startCmd)
         

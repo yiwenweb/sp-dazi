@@ -66,6 +66,15 @@ enum class H264CameraType(val key: String, val title: String, val desc: String) 
     WIDE("wideRoad", "广角", "两侧变道/盲区视角"),
 }
 
+/** 服务运行状态 */
+enum class ServiceStatus {
+    UNKNOWN,    // 未知（未检查）
+    RUNNING,    // 运行中
+    STOPPED,    // 已停止
+    STARTING,   // 启动中
+    ERROR       // 错误
+}
+
 @Composable
 fun H264VideoScreen(
     sshManager: SshManager,
