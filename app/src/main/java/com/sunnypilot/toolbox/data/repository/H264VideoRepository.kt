@@ -7,7 +7,15 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
 import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicReference
+
+/** String MD5 — 用于比对本地脚本与 C3 上脚本是否一致 */
+private fun String.md5(): String {
+    val digest = MessageDigest.getInstance("MD5")
+    val bytes = digest.digest(this.toByteArray(Charsets.UTF_8))
+    return bytes.joinToString("") { "%02x".format(it) }
+}
 
 /**
  * H264 视频流仓库 — WebSocket 接收 H264 帧，客户端硬件解码
@@ -175,29 +183,22 @@ class H264VideoRepository(
                 "echo -n '1' > /data/params/d/IsDriverViewEnabled"
         )
 
-        // 检查脚本是否已部署，未部署则自动部署
-        val deployed = isScriptDeployed().getOrDefault(false)
-        if (!deployed) {
-            Log.d(TAG, "Script not deployed, deploying now...")
-            deployScript().fold(
-                onSuccess = { Log.d(TAG, "Script deployed successfully") },
-                onFailure = { e ->
-                    Log.e(TAG, "Failed to deploy script", e)
-                    return Result.failure(e)
-                }
-            )
-        }
+        // 启动时校验脚本版本（MD5），只有内容不同才覆盖，避免每次启动都做无意义的文件写入。
+        deployScriptIfChanged().fold(
+            onSuccess = { updated -> Log.d(TAG, if (updated) "Script updated to latest" else "Script already up-to-date") },
+            onFailure = { e ->
+                Log.e(TAG, "Failed to deploy script", e)
+                return Result.failure(e)
+            }
+        )
 
-        // 检查是否已运行
+        // 检查是否已运行，已运行则重启以加载新脚本
         val running = isServiceRunning().getOrDefault(false)
         if (running) {
-            Log.d(TAG, "H264 forward service already running")
-            return Result.success(Unit)
+            Log.d(TAG, "Old service running, restarting to pick up new script...")
+            sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo done")
+            delay(1000)
         }
-
-        // 杀掉旧进程（如果有的话）
-        sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo done")
-        delay(1000)
 
         // 启动服务
         // 关键: 用 setsid 完全脱离会话, 并把 stdin/stdout/stderr 都重定向,
@@ -254,12 +255,11 @@ class H264VideoRepository(
         return startService()
     }
 
-    /** 部署 H264 转发脚本到 C3 */
+    /** 部署 H264 转发脚本到 C3（强制覆盖，供手动触发） */
     suspend fun deployScript(): Result<Unit> {
         return try {
             val content = context.assets.open("h264_forward.py")
                 .bufferedReader().use { it.readText() }
-            
             sshManager.executeCommand("mkdir -p $LOG_DIR")
             sshManager.writeTextFile(REMOTE_SCRIPT, content).map {
                 Log.d(TAG, "H264 forward script deployed successfully")
@@ -267,6 +267,61 @@ class H264VideoRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deploy H264 forward script", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * MD5 校验后按需覆盖脚本。
+     * 返回 true = 脚本已更新；false = 已是最新无需更新。
+     * 只在内容真正不同时才写文件，避免每次启动都触发 SFTP 写入。
+     */
+    suspend fun deployScriptIfChanged(): Result<Boolean> {
+        return try {
+            val localContent = context.assets.open("h264_forward.py")
+                .bufferedReader().use { it.readText() }
+            val localMd5 = localContent.md5()
+
+            // 从 C3 取远端 MD5（md5sum 输出格式 "hash  path"）
+            val remoteMd5Result = sshManager.executeCommand(
+                "md5sum $REMOTE_SCRIPT 2>/dev/null | awk '{print \$1}'"
+            )
+            val remoteMd5 = remoteMd5Result.getOrNull()?.trim() ?: ""
+
+            if (localMd5 == remoteMd5 && remoteMd5.isNotEmpty()) {
+                Log.d(TAG, "Script MD5 matches ($localMd5), skip deploy")
+                Result.success(false)
+            } else {
+                Log.d(TAG, "Script changed (local=$localMd5 remote=$remoteMd5), deploying...")
+                sshManager.executeCommand("mkdir -p $LOG_DIR")
+                sshManager.writeTextFile(REMOTE_SCRIPT, localContent).map { true }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "deployScriptIfChanged failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** 强制重新部署脚本并重启服务（供 UI"重新上传脚本"按钮使用） */
+    suspend fun redeployAndRestart(): Result<String> {
+        return try {
+            // 1. 停止服务
+            sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo done")
+            delay(500)
+
+            // 2. 强制覆盖脚本
+            val localContent = context.assets.open("h264_forward.py")
+                .bufferedReader().use { it.readText() }
+            sshManager.executeCommand("mkdir -p $LOG_DIR")
+            sshManager.writeTextFile(REMOTE_SCRIPT, localContent).getOrThrow()
+            Log.d(TAG, "Script redeployed (${localContent.length} bytes)")
+
+            // 3. 重启服务
+            startService().getOrThrow()
+
+            Result.success("✓ 脚本已更新并重新启动\n路径: $REMOTE_SCRIPT\n大小: ${localContent.length} bytes")
+        } catch (e: Exception) {
+            Log.e(TAG, "redeployAndRestart failed", e)
             Result.failure(e)
         }
     }

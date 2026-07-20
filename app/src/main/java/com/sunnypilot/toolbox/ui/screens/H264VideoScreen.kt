@@ -724,6 +724,8 @@ private fun H264ServiceControlDialog(
 ) {
     var testingH264 by remember { mutableStateOf(false) }
     var h264TestResult by remember { mutableStateOf<String?>(null) }
+    var redeploying by remember { mutableStateOf(false) }
+    var redeployResult by remember { mutableStateOf<String?>(null) }
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -796,7 +798,51 @@ private fun H264ServiceControlDialog(
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
                 }
-                
+
+                Spacer(Modifier.height(8.dp))
+
+                // 重新上传脚本 — 强制覆盖 C3 上的旧脚本并重启服务
+                Button(
+                    onClick = {
+                        redeploying = true
+                        redeployResult = null
+                        scope.launch {
+                            val result = h264Repo.redeployAndRestart()
+                            redeployResult = if (result.isSuccess) {
+                                result.getOrNull()
+                            } else {
+                                "❌ 上传失败: ${result.exceptionOrNull()?.message}"
+                            }
+                            redeploying = false
+                        }
+                    },
+                    enabled = !redeploying,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+                ) {
+                    Icon(
+                        Icons.Filled.Upload,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color.White
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (redeploying) "上传中..." else "重新上传脚本",
+                        color = Color.White
+                    )
+                }
+
+                if (redeployResult != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        redeployResult!!,
+                        fontSize = 11.sp,
+                        color = if (redeployResult!!.startsWith("✓")) Green500 else Color(0xFFDC2626),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
                 Divider(color = Slate200)
                 Spacer(Modifier.height(16.dp))
                 
