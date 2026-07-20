@@ -189,40 +189,45 @@ class H264VideoRepository(
         }
 
         // 杀掉旧进程（如果有的话）
-        sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null")
+        sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo done")
         delay(1000)
 
-        // 启动服务（单行命令，避免三引号字符串里的 \\ 破坏 shell 续行）
+        // 启动服务
+        // 关键: 用 setsid 完全脱离会话, 并把 stdin/stdout/stderr 都重定向,
+        // 否则后台 python 进程会继承 SSH exec channel 的文件描述符,
+        // 导致 channel 一直不关闭, executeCommand 永远阻塞(界面卡在"启动中")。
         val startCmd = buildString {
             append("cd $OPENPILOT && ")
             append(". /usr/local/venv/bin/activate && ")
             append("export PYTHONPATH=$OPENPILOT && ")
-            append("nohup python3 $REMOTE_SCRIPT --port $WEBSOCKET_PORT --host 0.0.0.0 ")
-            append("> $LOG_DIR/h264_forward.log 2>&1 & ")
-            append("sleep 2; ")
-            append("if netstat -tuln 2>/dev/null | grep -q :$WEBSOCKET_PORT; then ")
-            append("echo 'started'; ")
-            append("else ")
-            append("echo 'failed'; ")
-            append("tail -n 20 $LOG_DIR/h264_forward.log; ")
-            append("fi")
+            append("setsid nohup python3 $REMOTE_SCRIPT --port $WEBSOCKET_PORT --host 0.0.0.0 ")
+            append("</dev/null > $LOG_DIR/h264_forward.log 2>&1 & ")
+            append("echo launched")
         }
 
-        val result = sshManager.executeCommand(startCmd)
-        
-        return if (result.isSuccess) {
-            val output = result.getOrNull()
-            if (output?.contains("started") == true) {
-                Log.d(TAG, "H264 forward service started successfully")
-                Result.success(Unit)
-            } else {
-                Log.e(TAG, "H264 forward service start failed: $output")
-                Result.failure(Exception("H264 转发服务启动失败。请查看日志: $LOG_DIR/h264_forward.log"))
-            }
-        } else {
-            Log.e(TAG, "Failed to execute start command", result.exceptionOrNull())
-            Result.failure(result.exceptionOrNull() ?: Exception("启动命令执行失败"))
+        // 启动命令应立即返回(进程已脱离)
+        val launchResult = sshManager.executeCommand(startCmd)
+        if (launchResult.isFailure) {
+            Log.e(TAG, "Failed to execute start command", launchResult.exceptionOrNull())
+            return Result.failure(launchResult.exceptionOrNull() ?: Exception("启动命令执行失败"))
         }
+
+        // 在 Kotlin 端轮询端口, 确认服务真的起来了(最多等 ~8 秒)
+        repeat(8) { attempt ->
+            delay(1000)
+            if (isServiceRunning().getOrDefault(false)) {
+                Log.d(TAG, "H264 forward service started successfully (after ${attempt + 1}s)")
+                return Result.success(Unit)
+            }
+        }
+
+        // 超时仍未监听端口, 读日志辅助排查
+        val log = sshManager.executeCommand("tail -n 20 $LOG_DIR/h264_forward.log 2>/dev/null")
+            .getOrDefault("(无法读取日志)")
+        Log.e(TAG, "H264 forward service failed to start. Log:\n$log")
+        return Result.failure(
+            Exception("H264 转发服务启动后端口 $WEBSOCKET_PORT 未监听。\n日志尾部:\n$log")
+        )
     }
 
     /** 停止服务 */

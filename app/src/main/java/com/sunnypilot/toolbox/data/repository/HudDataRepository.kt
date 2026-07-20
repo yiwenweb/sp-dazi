@@ -78,44 +78,37 @@ class HudDataRepository(
             }
             
             // 3. 启动服务器（不杀旧进程）
+            // 关键: 用 setsid 完全脱离会话 + 重定向 stdin(</dev/null),
+            // 否则后台 python 进程会继承 SSH exec channel 的文件描述符,
+            // 导致 channel 一直不关闭, executeCommand 永远阻塞(界面卡在"启动中")。
             val startCmd = buildString {
                 append("cd /data/openpilot && ")
                 append(". /usr/local/venv/bin/activate && ")
                 append("export PYTHONPATH=/data/openpilot && ")
-                append("nohup python3 $REMOTE_SCRIPT --port $HUD_PORT --host 0.0.0.0 ")
-                append("> $LOG_DIR/hud_data_server.log 2>&1 & ")
-                
-                // 等待并验证服务启动
-                append("sleep 2; ")
-                
-                // 检查进程是否真的在运行
-                append("if pgrep -f hud_data_server > /dev/null; then ")
-                append("  echo 'HUD server started'; ")
-                append("else ")
-                append("  echo 'ERROR: HUD server failed to start'; ")
-                append("  tail -n 20 $LOG_DIR/hud_data_server.log; ")
-                append("  exit 1; ")
-                append("fi")
+                append("setsid nohup python3 $REMOTE_SCRIPT --port $HUD_PORT --host 0.0.0.0 ")
+                append("</dev/null > $LOG_DIR/hud_data_server.log 2>&1 & ")
+                append("echo launched")
             }
-            
-            val result = sshManager.executeCommand(startCmd)
-            
-            // 检查启动结果
-            result.fold(
-                onSuccess = { output ->
-                    if (output.contains("ERROR")) {
-                        Log.e(TAG, "HUD start failed: $output")
-                        return@withContext Result.failure(Exception("HUD server failed to start. Check log: $LOG_DIR/hud_data_server.log"))
-                    }
-                    Log.d(TAG, "HUD start success: $output")
-                },
-                onFailure = { e ->
-                    Log.e(TAG, "HUD start command failed", e)
-                    return@withContext Result.failure(e)
+
+            val launchResult = sshManager.executeCommand(startCmd)
+            if (launchResult.isFailure) {
+                Log.e(TAG, "HUD start command failed", launchResult.exceptionOrNull())
+                return@withContext Result.failure(launchResult.exceptionOrNull() ?: Exception("HUD 启动命令执行失败"))
+            }
+
+            // 在 Kotlin 端轮询进程, 确认服务真的起来了(最多等 ~6 秒)
+            repeat(6) { attempt ->
+                kotlinx.coroutines.delay(1000)
+                if (isHudRunning().getOrDefault(false)) {
+                    Log.d(TAG, "HUD server started successfully (after ${attempt + 1}s)")
+                    return@withContext Result.success(Unit)
                 }
-            )
-            
-            Result.success(Unit)
+            }
+
+            val log = sshManager.executeCommand("tail -n 20 $LOG_DIR/hud_data_server.log 2>/dev/null")
+                .getOrDefault("(无法读取日志)")
+            Log.e(TAG, "HUD server failed to start. Log:\n$log")
+            Result.failure(Exception("HUD 服务启动失败。\n日志尾部:\n$log"))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start HUD server", e)
             Result.failure(e)
