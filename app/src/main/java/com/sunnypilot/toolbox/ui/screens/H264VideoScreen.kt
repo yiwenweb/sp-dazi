@@ -433,29 +433,36 @@ private fun H264VideoSurface(
     AndroidView(
         factory = { context ->
             TextureView(context).apply {
-                surfaceTexture?.let { st ->
-                    val surface = Surface(st)
-                    surfaceHolder(surface)
-                    
-                    // 配置解码器
-                    val codec = try {
-                        val c = MediaCodec.createDecoderByType("video/avc").apply {
-                            val format = MediaFormat.createVideoFormat("video/avc", 1280, 720).apply {
-                                setInteger(MediaFormat.KEY_COLOR_FORMAT, 
-                                    android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                                setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-                                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                // 关键: TextureView 刚创建时 surfaceTexture 为 null,
+                // 必须等 onSurfaceTextureAvailable 回调才能拿到 Surface 并配置解码器。
+                // 之前在 factory 里直接读 surfaceTexture 恒为 null, 解码器从未创建 → 无画面。
+                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                        val surface = Surface(st)
+                        surfaceHolder(surface)
+                        try {
+                            val c = MediaCodec.createDecoderByType("video/avc").apply {
+                                val format = MediaFormat.createVideoFormat("video/avc", 1280, 720).apply {
+                                    setInteger(MediaFormat.KEY_COLOR_FORMAT,
+                                        android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                                    setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+                                    setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                                }
+                                configure(format, surface, null, 0)
+                                start()
                             }
-                            configure(format, surface, null, 0)
-                            start()
+                            onDecoderConfigured(c)
+                            Log.d("H264VideoSurface", "Decoder configured successfully (${width}x$height)")
+                        } catch (e: Exception) {
+                            Log.e("H264VideoSurface", "Failed to configure decoder: ${e.message}")
                         }
-                        onDecoderConfigured(c)
-                        Log.d("H264VideoSurface", "Decoder configured successfully")
-                        c
-                    } catch (e: Exception) {
-                        Log.e("H264VideoSurface", "Failed to configure decoder: ${e.message}")
-                        null
                     }
+
+                    override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+
+                    override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean = true
+
+                    override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
                 }
             }
         },

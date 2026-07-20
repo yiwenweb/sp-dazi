@@ -168,6 +168,13 @@ class H264VideoRepository(
         // 确保目录存在
         sshManager.executeCommand("mkdir -p $LOG_DIR")
 
+        // 开启 stream_encoderd 摄像头流 (产生 livestreamRoadEncodeData H264 帧)。
+        // 不开这个参数, stream_encoderd 不广播 H264, 转发器只能发心跳, Android 收不到画面。
+        sshManager.executeCommand(
+            "echo -n '1' > /data/params/d/WebrtcStreamEnabled && " +
+                "echo -n '1' > /data/params/d/IsDriverViewEnabled"
+        )
+
         // 检查脚本是否已部署，未部署则自动部署
         val deployed = isScriptDeployed().getOrDefault(false)
         if (!deployed) {
@@ -232,6 +239,11 @@ class H264VideoRepository(
 
     /** 停止服务 */
     suspend fun stopService(): Result<Unit> {
+        // 关闭摄像头流参数, 让 stream_encoderd 停止广播 H264
+        sshManager.executeCommand(
+            "echo -n '0' > /data/params/d/WebrtcStreamEnabled && " +
+                "echo -n '0' > /data/params/d/IsDriverViewEnabled"
+        )
         return sshManager.executeCommand("pkill -f h264_forward.py 2>/dev/null; echo stopped").map { Unit }
     }
 
