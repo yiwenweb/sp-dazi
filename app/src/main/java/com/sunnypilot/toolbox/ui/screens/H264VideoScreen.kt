@@ -39,6 +39,7 @@ import com.sunnypilot.toolbox.data.repository.HudData
 import com.sunnypilot.toolbox.ui.components.HudOverlay
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.nio.ByteBuffer
 
 /**
@@ -101,7 +102,6 @@ fun H264VideoScreen(
     
     // 视频状态
     var isStreamRunning by remember { mutableStateOf(false) }
-    var lastFrameTime by remember { mutableLongStateOf(0L) }
     
     // MediaCodec 解码器（在后台线程创建）
     val decoder = remember { mutableStateOf<MediaCodec?>(null) }
@@ -161,31 +161,44 @@ fun H264VideoScreen(
         error = null
         Log.d("H264VideoScreen", "H264 service is running, connecting for camera=$camera")
 
-        // 连接到 WebSocket
+        // 有序单消费者队列: H264 帧必须严格按接收顺序喂给解码器,
+        // 之前每帧 scope.launch 并发喂会乱序 → 花屏。这里用 Channel 保证顺序。
+        // 满则丢最旧(容量足够, 正常不会满), 避免内存无限增长。
+        val frameChannel = Channel<ByteArray>(capacity = 240, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+
+        // 单消费者: 按序喂解码器 + 统计真实 fps
+        val consumer = launch(Dispatchers.IO) {
+            var frameCount = 0
+            var fpsTimer = System.currentTimeMillis()
+            for (h264Data in frameChannel) {
+                // 解码器可能还没就绪(Surface 未 available), 等待其创建
+                var codec = decoder.value
+                var waited = 0
+                while (codec == null && waited < 3000) {
+                    delay(50); waited += 50; codec = decoder.value
+                }
+                if (codec == null) continue
+                try {
+                    feedH264Frame(codec, h264Data)
+                    frameCount++
+                    val now = System.currentTimeMillis()
+                    if (now - fpsTimer >= 1000) {
+                        fps = frameCount
+                        frameCount = 0
+                        fpsTimer = now
+                    }
+                } catch (e: Exception) {
+                    Log.w("H264VideoScreen", "Failed to feed frame: ${e.message}")
+                }
+            }
+        }
+
+        // 连接到 WebSocket, 收到帧只入队(不解码), 保证接收线程不被解码阻塞
         h264Repo.connect(
             host = c3Ip,
             camera = camera.key,
             onFrame = { h264Data ->
-                // 收到 H264 帧，喂给解码器
-                scope.launch(Dispatchers.IO) {
-                    val codec = decoder.value
-                    if (codec != null) {
-                        try {
-                            // 计算帧率
-                            val now = System.currentTimeMillis()
-                            if (now - lastFrameTime >= 1000) {
-                                // 这里简化处理，实际应该统计每秒帧数
-                                fps = 30 // 假设 30fps，实际需要更精确的统计
-                            }
-                            lastFrameTime = now
-
-                            // 喂给解码器
-                            feedH264Frame(codec, h264Data)
-                        } catch (e: Exception) {
-                            Log.w("H264VideoScreen", "Failed to feed frame: ${e.message}")
-                        }
-                    }
-                }
+                frameChannel.trySend(h264Data)
             },
             onError = { errorMsg ->
                 Log.e("H264VideoScreen", "H264 stream error: $errorMsg")
@@ -194,6 +207,14 @@ fun H264VideoScreen(
                 }
             }
         )
+
+        // LaunchedEffect 取消(切摄像头/离开)时, 关闭队列结束消费者
+        try {
+            awaitCancellation()
+        } finally {
+            frameChannel.close()
+            consumer.cancel()
+        }
     }
 
     // HUD 数据轮询（独立于视频流）
@@ -477,25 +498,33 @@ private fun H264VideoSurface(
  */
 private fun feedH264Frame(codec: MediaCodec, h264Data: ByteArray) {
     try {
-        val index = codec.dequeueInputBuffer(10000)
-        if (index >= 0) {
-            val inputBuffer = codec.getInputBuffer(index)
-            inputBuffer?.clear()
-            inputBuffer?.put(h264Data)
-            
-            val timestamp = System.nanoTime() / 1000
-            
-            codec.queueInputBuffer(
-                index,
-                0,
-                h264Data.size,
-                timestamp,
-                0
-            )
-            
-            // 处理输出
-            processDecoderOutput(codec)
+        // 先排空一次输出, 腾出输入缓冲
+        processDecoderOutput(codec)
+
+        // 等待可用输入缓冲(最多重试几次), 而不是拿不到就丢帧 —— 丢帧会导致 H264 花屏
+        var index = -1
+        var retry = 0
+        while (index < 0 && retry < 5) {
+            index = codec.dequeueInputBuffer(20000)  // 20ms
+            if (index < 0) {
+                processDecoderOutput(codec)  // 消费输出以释放缓冲
+                retry++
+            }
         }
+        if (index < 0) {
+            Log.w("H264VideoSurface", "No input buffer available, dropping 1 frame")
+            return
+        }
+
+        val inputBuffer = codec.getInputBuffer(index)
+        inputBuffer?.clear()
+        inputBuffer?.put(h264Data)
+
+        val timestamp = System.nanoTime() / 1000
+        codec.queueInputBuffer(index, 0, h264Data.size, timestamp, 0)
+
+        // 处理输出
+        processDecoderOutput(codec)
     } catch (e: Exception) {
         Log.w("H264VideoSurface", "Failed to feed frame: ${e.message}")
     }
