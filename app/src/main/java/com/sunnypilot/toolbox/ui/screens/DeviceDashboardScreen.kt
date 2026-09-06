@@ -48,6 +48,7 @@ fun DeviceDashboardScreen(
     var showErrorLog by remember { mutableStateOf(false) }
     var errorLogText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
 
     fun refreshOfflineState() {
         scope.launch {
@@ -288,11 +289,15 @@ fun DeviceDashboardScreen(
                                 onClick = {
                                     val host = sshManager.connectedHost
                                     if (!host.isNullOrEmpty()) {
-                                        val ctx = LocalContext.current
-                                        ctx.startActivity(
-                                            Intent(ctx, com.sunnypilot.toolbox.ui.C3StreamActivity::class.java)
-                                                .putExtra("host", host)
-                                        )
+                                        val intent = Intent(ctx, com.sunnypilot.toolbox.ui.C3StreamActivity::class.java)
+                                            .putExtra("host", host)
+                                        val activity = ctx as? Activity
+                                        if (activity != null) {
+                                            activity.startActivity(intent)
+                                        } else {
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            ctx.startActivity(intent)
+                                        }
                                     }
                                 }
                             )
