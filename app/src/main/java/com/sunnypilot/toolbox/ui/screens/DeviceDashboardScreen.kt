@@ -571,7 +571,7 @@ private fun rememberUiFps(): State<Float> {
         val activity = context as? Activity
         var frameCount = 0
         var windowStart = System.nanoTime()
-        val listener = Window.OnFrameMetricsAvailableListener { _, _ ->
+        val listener = Window.OnFrameMetricsAvailableListener { _, _, _ ->
             frameCount++
             val now = System.nanoTime()
             val elapsed = now - windowStart
