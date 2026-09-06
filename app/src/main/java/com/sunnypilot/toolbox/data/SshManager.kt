@@ -6,6 +6,7 @@ import com.jcraft.jsch.Session
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
 import com.sunnypilot.toolbox.model.ConnectionStage
+import com.sunnypilot.toolbox.model.CpuCoreStatus
 import com.sunnypilot.toolbox.network.AutoDiscovery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -389,6 +390,91 @@ class SshManager {
                 "serviceDetails" to (parts.getOrNull(13) ?: "{}")
             )
         }
+    }
+
+    /**
+     * 获取每个 CPU 核心的运行状态与实时负载。
+     * 通过一次 SSH 往返完成：
+     *  1. 读取每个核心的 online / 当前频率 / 调频策略 / 频率上下限
+     *  2. 间隔采样 /proc/stat 两次，计算每个核心的实时占用率
+     */
+    suspend fun getCpuCoreStatus(): Result<List<CpuCoreStatus>> = withContext(Dispatchers.IO) {
+        val script = """
+N=${'$'}(nproc 2>/dev/null || echo 8)
+for c in ${'$'}(seq 0 ${'$'}((${'$'}N - 1))); do
+    ON=${'$'}(cat /sys/devices/system/cpu/cpu${'$'}c/online 2>/dev/null || echo 1)
+    F=${'$'}(cat /sys/devices/system/cpu/cpu${'$'}c/cpufreq/scaling_cur_freq 2>/dev/null || echo 0)
+    G=${'$'}(cat /sys/devices/system/cpu/cpu${'$'}c/cpufreq/scaling_governor 2>/dev/null || echo unknown)
+    MN=${'$'}(cat /sys/devices/system/cpu/cpu${'$'}c/cpufreq/scaling_min_freq 2>/dev/null || echo 0)
+    MX=${'$'}(cat /sys/devices/system/cpu/cpu${'$'}c/cpufreq/scaling_max_freq 2>/dev/null || echo 0)
+    echo "CORE|${'$'}c|${'$'}ON|${'$'}F|${'$'}G|${'$'}MN|${'$'}MX"
+done
+echo "=====STAT1====="
+grep -E '^cpu[0-9]+' /proc/stat
+sleep 0.8
+echo "=====STAT2====="
+grep -E '^cpu[0-9]+' /proc/stat
+        """.trimIndent()
+        executeCommand(script).map { output -> parseCpuCoreStatus(output) }
+    }
+
+    /**
+     * 解析 getCpuCoreStatus 的返回文本：
+     * - CORE 行格式: "CORE|索引|online|当前频率kHz|governor|最低kHz|最高kHz"
+     * - STAT1 / STAT2 段: /proc/stat 的 cpuN 行，用于计算每核占用率
+     */
+    private fun parseCpuCoreStatus(raw: String): List<CpuCoreStatus> {
+        val coreRows = mutableListOf<List<String>>()
+        val stat1 = mutableMapOf<String, List<Long>>()
+        val stat2 = mutableMapOf<String, List<Long>>()
+        var phase = 0 // 0=CORE段, 1=STAT1, 2=STAT2
+
+        raw.lines().forEach { line ->
+            val trimmed = line.trim()
+            when {
+                trimmed.startsWith("CORE|") -> coreRows.add(trimmed.split("|"))
+                trimmed == "=====STAT1=====" -> phase = 1
+                trimmed == "=====STAT2=====" -> phase = 2
+                trimmed.startsWith("cpu") && trimmed.length > 3 && trimmed[3].isDigit() -> {
+                    val parts = trimmed.split(Regex("\\s+"))
+                    val values = parts.drop(1).mapNotNull { it.toLongOrNull() }
+                    if (phase == 1) stat1[parts[0]] = values
+                    else if (phase == 2) stat2[parts[0]] = values
+                }
+            }
+        }
+
+        return coreRows.mapNotNull { parts ->
+            if (parts.size < 7) return@mapNotNull null
+            val index = parts[1].toIntOrNull() ?: return@mapNotNull null
+            CpuCoreStatus(
+                index = index,
+                online = parts[2] == "1",
+                currentFreqKHz = parts[3].toLongOrNull() ?: 0,
+                governor = parts[4],
+                minFreqKHz = parts[5].toLongOrNull() ?: 0,
+                maxFreqKHz = parts[6].toLongOrNull() ?: 0,
+                loadPercent = calculateCpuLoad("cpu$index", stat1, stat2)
+            )
+        }.sortedBy { it.index }
+    }
+
+    /**
+     * 根据两次 /proc/stat 采样计算指定 CPU 核心的占用率 (0~100)。
+     * 统计口径：idle = idle + iowait；total = user+nice+system+idle+iowait+irq+softirq+steal
+     */
+    private fun calculateCpuLoad(coreName: String, stat1: Map<String, List<Long>>, stat2: Map<String, List<Long>>): Float {
+        val a = stat1[coreName] ?: return 0f
+        val b = stat2[coreName] ?: return 0f
+        if (a.size < 5 || b.size < 5) return 0f
+
+        fun idleOf(v: List<Long>): Long = v[3] + v[4] // idle + iowait
+        fun totalOf(v: List<Long>): Long = v.take(8).sum() // 含 steal
+
+        val dTotal = totalOf(b) - totalOf(a)
+        if (dTotal <= 0) return 0f
+        val dIdle = idleOf(b) - idleOf(a)
+        return ((dTotal - dIdle).toFloat() * 100f / dTotal).coerceIn(0f, 100f)
     }
 
     /**

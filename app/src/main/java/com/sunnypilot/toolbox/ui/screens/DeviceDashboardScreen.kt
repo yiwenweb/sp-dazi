@@ -1,5 +1,9 @@
 package com.sunnypilot.toolbox.ui.screens
 
+import android.app.Activity
+import android.os.Handler
+import android.os.Looper
+import android.view.Window
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,13 +18,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.sunnypilot.toolbox.data.SshManager
+import com.sunnypilot.toolbox.model.CpuCoreStatus
 import com.sunnypilot.toolbox.model.DeviceStatus
 import com.sunnypilot.toolbox.ui.components.StatusChip
 import com.sunnypilot.toolbox.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -30,6 +39,7 @@ fun DeviceDashboardScreen(
     modifier: Modifier = Modifier
 ) {
     var status by remember { mutableStateOf(DeviceStatus()) }
+    var cpuCores by remember { mutableStateOf<List<CpuCoreStatus>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var isOfflineMode by remember { mutableStateOf(false) }
     var showRebootDialog by remember { mutableStateOf(false) }
@@ -52,6 +62,11 @@ fun DeviceDashboardScreen(
         if (sshManager.isConnected()) {
             refreshStatus(sshManager) { status = it }
             refreshOfflineState()
+            // 实时轮询 CPU 核心状态（每 2 秒刷新一次）
+            while (sshManager.isConnected()) {
+                cpuCores = sshManager.getCpuCoreStatus().getOrElse { emptyList() }
+                delay(2000)
+            }
         }
     }
 
@@ -268,6 +283,7 @@ fun DeviceDashboardScreen(
                                 scope.launch {
                                     isLoading = true
                                     refreshStatus(sshManager) { status = it }
+                                    cpuCores = sshManager.getCpuCoreStatus().getOrElse { emptyList() }
                                     refreshOfflineState()
                                     isLoading = false
                                 }
@@ -306,6 +322,21 @@ fun DeviceDashboardScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // 实时 UI 帧率（基于 Window FrameMetrics 统计实际渲染帧数）
+            val uiFps by rememberUiFps()
+            val fpsColor = when {
+                uiFps <= 0f -> Slate400
+                uiFps >= 50f -> Green500
+                uiFps >= 30f -> Amber500
+                else -> Red500
+            }
+            val fpsBg = when {
+                uiFps <= 0f -> Slate100
+                uiFps >= 50f -> Green100
+                uiFps >= 30f -> Amber100
+                else -> Red100
+            }
+
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     InfoCard(
@@ -330,6 +361,14 @@ fun DeviceDashboardScreen(
                         icon = Icons.Default.Memory,
                         iconColor = Blue500,
                         bgColor = Blue100,
+                        modifier = Modifier.weight(1f).height(120.dp)
+                    )
+                    InfoCard(
+                        label = "UI 帧率",
+                        value = if (uiFps > 0f) "${uiFps.toInt()} fps" else "--",
+                        icon = Icons.Default.GraphicEq,
+                        iconColor = fpsColor,
+                        bgColor = fpsBg,
                         modifier = Modifier.weight(1f).height(120.dp)
                     )
                 }
@@ -359,6 +398,12 @@ fun DeviceDashboardScreen(
                         modifier = Modifier.weight(1f).height(120.dp)
                     )
                 }
+
+                // CPU 核心状态（实时）
+                CpuCorePanel(
+                    cores = cpuCores,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -511,6 +556,185 @@ private fun RowScope.InfoCard(
                 fontWeight = FontWeight.SemiBold
             )
         }
+    }
+}
+
+/**
+ * 实时统计当前应用窗口实际渲染的 UI 帧率（基于 Window FrameMetrics）。
+ * 每秒刷新一次；界面空闲（没有新帧渲染）时返回 0。
+ */
+@Composable
+private fun rememberUiFps(): State<Float> {
+    val context = LocalContext.current
+    val fps = remember { mutableFloatStateOf(0f) }
+    DisposableEffect(context) {
+        val activity = context as? Activity
+        var frameCount = 0
+        var windowStart = System.nanoTime()
+        val listener = Window.OnFrameMetricsAvailableListener { _, _ ->
+            frameCount++
+            val now = System.nanoTime()
+            val elapsed = now - windowStart
+            if (elapsed >= 1_000_000_000L) {
+                fps.floatValue = frameCount * 1_000_000_000f / elapsed
+                frameCount = 0
+                windowStart = now
+            }
+        }
+        activity?.window?.addOnFrameMetricsAvailableListener(listener, Handler(Looper.getMainLooper()))
+        onDispose {
+            activity?.window?.removeOnFrameMetricsAvailableListener(listener)
+        }
+    }
+    return fps
+}
+
+/**
+ * CPU 核心状态面板：2 列网格展示每个核心的在线状态、负载、频率与调频策略。
+ */
+@Composable
+private fun CpuCorePanel(cores: List<CpuCoreStatus>, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Slate50)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Memory,
+                contentDescription = null,
+                tint = Purple500,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "CPU 核心状态",
+                style = MaterialTheme.typography.titleMedium,
+                color = Slate900,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "每 2 秒自动刷新",
+                style = MaterialTheme.typography.labelSmall,
+                color = Slate500
+            )
+        }
+        if (cores.isEmpty()) {
+            Text(
+                text = "暂无核心数据，请确认设备已连接。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Slate500
+            )
+        } else {
+            cores.chunked(2).forEach { rowCores ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    rowCores.forEach { core ->
+                        CpuCoreCard(core = core, modifier = Modifier.weight(1f))
+                    }
+                    if (rowCores.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CpuCoreCard(core: CpuCoreStatus, modifier: Modifier = Modifier) {
+    val loadColor = when {
+        !core.online -> Slate400
+        core.loadPercent >= 80f -> Red500
+        core.loadPercent >= 50f -> Amber500
+        else -> Green500
+    }
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Panel,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "CPU ${core.index}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Slate900,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (core.online) Green500 else Slate300)
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = if (core.online) "${core.loadPercent.toInt()}%" else "离线",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (core.online) loadColor else Slate400,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            // 负载条
+            MiniBar(
+                progress = if (core.online) core.loadPercent / 100f else 0f,
+                color = loadColor,
+                height = 6.dp
+            )
+            // 频率与调频策略
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = core.freqText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Slate600
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = core.governor,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate400
+                )
+            }
+            // 频率占比条（相对最高频率）
+            if (core.maxFreqKHz > 0) {
+                MiniBar(
+                    progress = core.freqRatio,
+                    color = Blue500,
+                    height = 4.dp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniBar(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+    height: Dp = 6.dp
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(height / 2f))
+            .background(Slate100)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .clip(RoundedCornerShape(height / 2f))
+                .background(color)
+        )
     }
 }
 
