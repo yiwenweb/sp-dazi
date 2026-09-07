@@ -1,7 +1,6 @@
 package com.sunnypilot.toolbox.ui.screens
 
 import android.app.Activity
-import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.view.Window
@@ -276,28 +275,6 @@ fun DeviceDashboardScreen(
                                             cmds.joinToString("\n")
                                         ).getOrElse { "读取失败: ${it.message}" }
                                         showErrorLog = true
-                                    }
-                                }
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            ActionButton(
-                                text = "超级视频",
-                                color = Blue500,
-                                icon = Icons.Default.Videocam,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    val host = sshManager.connectedHost
-                                    if (!host.isNullOrEmpty()) {
-                                        val intent = Intent(ctx, com.sunnypilot.toolbox.ui.C3StreamActivity::class.java)
-                                            .putExtra("host", host)
-                                        val activity = ctx as? Activity
-                                        if (activity != null) {
-                                            activity.startActivity(intent)
-                                        } else {
-                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            ctx.startActivity(intent)
-                                        }
                                     }
                                 }
                             )
