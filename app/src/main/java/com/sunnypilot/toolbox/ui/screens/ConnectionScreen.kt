@@ -58,7 +58,7 @@ fun ConnectionScreen(
 
     fun loadDefaultPrivateKey(): String {
         return try {
-            context.assets.open("menmen.ppk").bufferedReader().use { it.readText() }
+            context.assets.open("drivedream.ppk").bufferedReader().use { it.readText() }
         } catch (e: Exception) {
             ""
         }
@@ -75,11 +75,11 @@ fun ConnectionScreen(
                 password = config.password
                 privateKeyText = config.privateKeyContent.ifBlank {
                     loadDefaultPrivateKey().also { key ->
-                        if (key.isNotBlank()) savedKeyFileName = "menmen.ppk"
+                        if (key.isNotBlank()) savedKeyFileName = "drivedream.ppk"
                     }
                 }
                 savedKeyFileName = config.savedKeyFileName.ifBlank {
-                    if (privateKeyText.isNotBlank()) "menmen.ppk" else ""
+                    if (privateKeyText.isNotBlank()) "drivedream.ppk" else ""
                 }
                 hasLoadedConfig = true
             }
@@ -182,7 +182,7 @@ fun ConnectionScreen(
             statusText = "正在扫描并连接 C3..."
             val keyContent = privateKeyText.ifBlank {
                 loadDefaultPrivateKey().also { key ->
-                    if (key.isNotBlank()) savedKeyFileName = "menmen.ppk"
+                    if (key.isNotBlank()) savedKeyFileName = "drivedream.ppk"
                 }
             }
             privateKeyText = keyContent
@@ -271,7 +271,7 @@ fun ConnectionScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "不知道如何填写 IP 和端口？点击右上角「自动发现」扫描局域网设备，或点击「自动连接」直接用 menmen.ppk 连回 C3。C3 默认 IP 常为 192.168.43.1（手机做热点时）。",
+                    text = "不知道如何填写 IP 和端口？点击右上角「自动发现」扫描局域网设备，或点击「自动连接」直接用 drivedream.ppk 连回 C3。C3 默认 IP 常为 192.168.43.1（手机做热点时）。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Amber500,
                     modifier = Modifier.padding(16.dp)

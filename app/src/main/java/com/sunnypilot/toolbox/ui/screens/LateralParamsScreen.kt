@@ -344,7 +344,7 @@ fun LateralParamsScreen(
                 onRestore = { setEdit("steeringAngleDeadzoneDeg", LateralParams.DEFAULTS.steeringAngleDeadzoneDeg) }
             )
 
-            // ── 全部恢复门总默认 ──
+            // ── 全部恢复系统默认 ──
             OutlinedButton(
                 onClick = {
                     val d = LateralParams.DEFAULTS
@@ -354,14 +354,14 @@ fun LateralParamsScreen(
                     editSteerRatio = d.steerRatio.toString(); editSteerDelay = d.steerActuatorDelay.toString()
                     editSteerLimit = d.steerLimitTimer.toString()
                     verifyResult = emptyMap()
-                    Toast.makeText(context, "已填入门总默认值（需逐个保存到 C3）", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "已填入系统默认值（需逐个保存到 C3）", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Slate600)
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("全部填入门总默认值（需逐个保存）")
+                Text("全部填入系统默认值（需逐个保存）")
             }
 
             // ── 注意事项 ──
@@ -443,7 +443,7 @@ private fun ParamCard(
                 Text("C3 当前值: ", fontSize = 13.sp, color = Slate500)
                 Text(currentValue.toString(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Teal500)
                 Spacer(modifier = Modifier.width(12.dp))
-                Text("门总默认: ", fontSize = 12.sp, color = Slate400)
+                Text("系统默认: ", fontSize = 12.sp, color = Slate400)
                 Text(defaultValue.toString(), fontSize = 13.sp, color = Slate400)
             }
 

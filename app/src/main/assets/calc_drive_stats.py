@@ -35,11 +35,16 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, "/data/openpilot")
 
 try:
-    from tools.lib.logreader import LogReader
-except Exception as e:
-    print("无法导入 LogReader，请确认在 /data/openpilot 下运行", file=sys.stderr)
-    print(f"错误: {e}", file=sys.stderr)
-    sys.exit(1)
+    # sunnypilot-2026-02：LogReader 位于 openpilot 子模块 tools/lib 下
+    from openpilot.tools.lib.logreader import LogReader
+except Exception:
+    try:
+        sys.path.insert(0, "/data/openpilot/openpilot")
+        from tools.lib.logreader import LogReader
+    except Exception as e2:
+        print("无法导入 LogReader，请确认在 /data/openpilot 下运行", file=sys.stderr)
+        print(f"错误: {e2}", file=sys.stderr)
+        sys.exit(1)
 
 REALDATA = "/data/media/0/realdata"
 QLOG_NAMES = ("qlog.zst", "qlog.bz2", "qlog")
@@ -599,6 +604,10 @@ def main():
 
     # ── 输出到 stdout（App 读取） ──
     print(json.dumps(results, ensure_ascii=False))
+
+    # ── 无数据诊断（App 端透传给用户） ──
+    if not results:
+        print("[DIAG] 未找到可统计的驾驶数据：日志中没有 carState 驾驶状态消息（车辆 CAN 未连接或尚未实际行驶）")
 
     # ── 缓存到 C3 端文件 ──
     if accum_by_date:

@@ -26,6 +26,7 @@ import com.sunnypilot.toolbox.model.ServiceStatus
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DeviceManagerScreen(
     sshManager: SshManager,
@@ -128,7 +129,10 @@ fun DeviceManagerScreen(
                             )
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             ActionChip(
                                 text = "立即体检",
                                 icon = Icons.Default.FactCheck,
@@ -150,8 +154,9 @@ fun DeviceManagerScreen(
                                 bgColor = Slate200,
                                 onClick = {
                                     scope.launch {
-                                        exportLogs(sshManager) { exportResult = it }
+                                        exportResult = "正在导出日志到 C3（tar 打包中，可能需要几十秒）..."
                                         showExportDialog = true
+                                        exportLogs(sshManager) { exportResult = it }
                                     }
                                 }
                             )

@@ -374,10 +374,11 @@ fun DataCenterScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("常见原因：", fontSize = 12.sp, color = Slate500)
+                    Text("排查方向：", fontSize = 12.sp, color = Slate500)
                     Text("  • C3 未连接或 SSH 断开", fontSize = 12.sp, color = Slate500)
-                    Text("  • C3 上的脚本 calc_drive_stats.py 缺失", fontSize = 12.sp, color = Slate500)
-                    Text("  • C3 realdata 中没有行车数据", fontSize = 12.sp, color = Slate500)
+                    Text("  • C3 上暂无行车记录（realdata 为空）", fontSize = 12.sp, color = Slate500)
+                    Text("  • 日志中无 carState 驾驶消息（车辆未连接/未行驶）", fontSize = 12.sp, color = Slate500)
+                    Text("  • 统计脚本 calc_drive_stats.py 执行异常", fontSize = 12.sp, color = Slate500)
                 }
             },
             confirmButton = {

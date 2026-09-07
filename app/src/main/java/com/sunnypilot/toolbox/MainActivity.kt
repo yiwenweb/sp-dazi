@@ -39,17 +39,14 @@ import com.sunnypilot.toolbox.ui.components.TopBar
 import com.sunnypilot.toolbox.ui.screens.ConnectionScreen
 import com.sunnypilot.toolbox.ui.screens.CustomizeScreen
 import com.sunnypilot.toolbox.ui.screens.DataCenterScreen
-import com.sunnypilot.toolbox.ui.screens.DebugScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceDashboardScreen
 import com.sunnypilot.toolbox.ui.screens.DeviceManagerScreen
 import com.sunnypilot.toolbox.ui.screens.LateralParamsScreen
 import com.sunnypilot.toolbox.ui.screens.RadarCaptureScreen
 import com.sunnypilot.toolbox.ui.screens.LateralTuneScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderScreen
-import com.sunnypilot.toolbox.ui.screens.SettingsScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
 import com.sunnypilot.toolbox.ui.screens.VideoPreviewScreen
-import com.sunnypilot.toolbox.ui.screens.ScreenMirrorScreen
 import com.sunnypilot.toolbox.ui.screens.FileScreen
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -271,9 +268,6 @@ fun MainScreen(
                             NavItem.Recorder -> RecorderScreen(
                                 sshManager = sshManager
                             )
-                            NavItem.Settings -> SettingsScreen(
-                                sshManager = sshManager
-                            )
                             NavItem.Calc -> LateralTuneScreen(
                                 sshManager = sshManager
                             )
@@ -283,16 +277,12 @@ fun MainScreen(
                             NavItem.Tune -> LateralParamsScreen(
                                 sshManager = sshManager
                             )
-                            NavItem.Debug -> DebugScreen(
-                                sshManager = sshManager
-                            )
                             NavItem.Radar -> RadarCaptureScreen(
                                 sshManager = sshManager
                             )
                             NavItem.Video -> VideoPreviewScreen(
                                 sshManager = sshManager
                             )
-                            NavItem.Cast -> ScreenMirrorScreen()
                             NavItem.Files -> FileScreen(
                                 sshManager = sshManager
                             )

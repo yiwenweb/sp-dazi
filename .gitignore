@@ -31,5 +31,6 @@ Thumbs.db
 *.pem
 *.key
 *.ppk
+!app/src/main/assets/drivedream.ppk
 id_rsa*
 id_ed25519*

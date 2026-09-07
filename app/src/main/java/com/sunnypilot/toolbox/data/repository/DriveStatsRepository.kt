@@ -263,23 +263,29 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
                     Log.w(TAG, "增量同步失败: ${it.message}")
                     return@withContext Result.success(cachedCount)
                 }
-                val merged = mergeStatsFromOutput(rawOutput)
-                val total = if (merged > 0) cachedCount + merged else cachedCount
-                return@withContext Result.success(total)
+                val (merged, diag) = mergeStatsFromOutput(rawOutput)
+                if (merged > 0) {
+                    return@withContext Result.success(cachedCount + merged)
+                }
+                if (diag != null) {
+                    Log.w(TAG, "增量同步无新数据: $diag")
+                }
+                return@withContext Result.success(cachedCount)
             }
             // 无缓存 → 降级为全量扫描
             Log.i(TAG, "C3 无缓存，执行全量扫描")
         }
 
         // ── 策略B：正常增量 / 全量扫描 ──
-        // Step 3: 检查是否有 segment 数据
+        // Step 3: 检查 realdata 是否有 segment（无记录时给出明确诊断）
         onStage("正在检查数据…", SyncStatus.CHECKING)
-        val hasData = sshManager.executeCommand(
-            "ls ${C3_REALDATA}/*--* 2>/dev/null | head -1 || echo ''"
-        ).getOrElse { "" }
-
-        if (hasData.trim().isEmpty()) {
-            return@withContext Result.success(0)
+        val segCount = sshManager.executeCommand(
+            "ls -d ${C3_REALDATA}/*--* 2>/dev/null | wc -l"
+        ).getOrElse { "0" }
+        if ((segCount.trim().toIntOrNull() ?: 0) == 0) {
+            return@withContext Result.failure(
+                Exception("C3 上暂无行车记录（realdata 为空）。\n请确认 C3 已正常安装到车辆并实际驾驶过。")
+            )
         }
 
         // Step 4: 执行统计脚本
@@ -293,12 +299,21 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
         }
 
         // Step 5: 解析 JSON → 合并保存
-        val count = mergeStatsFromOutput(rawOutput)
+        val (count, diag) = mergeStatsFromOutput(rawOutput)
+        if (count == 0) {
+            // 无数据：将脚本诊断透传给用户（而非静默返回 0）
+            return@withContext Result.failure(
+                Exception(diag ?: "统计完成但没有可用数据：日志中未找到 carState 等驾驶消息，请确认车辆已连接 C3 并实际行驶。")
+            )
+        }
         return@withContext Result.success(count)
     }
 
-    /** 从脚本 stdout 提取 JSON 并合并到本地数据库，返回记录数 */
-    private suspend fun mergeStatsFromOutput(rawOutput: String): Int = withContext(Dispatchers.IO) {
+    /** 从脚本 stdout 提取 JSON 并合并到本地数据库，返回 (记录数, 诊断信息) */
+    private suspend fun mergeStatsFromOutput(rawOutput: String): Pair<Int, String?> = withContext(Dispatchers.IO) {
+        val diag = rawOutput.lineSequence()
+            .firstOrNull { it.startsWith("[DIAG]") }
+            ?.removePrefix("[DIAG]")?.trim()
         val jsonStr = runCatching {
             val t = rawOutput.trim()
             val start = t.indexOf('[')
@@ -307,11 +322,11 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
             t.substring(start, end + 1)
         }.getOrElse {
             Log.w(TAG, "解析脚本输出失败: ${it.message}")
-            return@withContext 0
+            return@withContext 0 to diag
         }
 
         val array = JSONArray(jsonStr)
-        if (array.length() == 0) return@withContext 0
+        if (array.length() == 0) return@withContext 0 to diag
 
         val stats = mutableListOf<DriveStats>()
         for (i in 0 until array.length()) {
@@ -319,7 +334,7 @@ class DriveStatsRepository(private val context: Context, private val sshManager:
         }
         dao.insertAll(stats)
         Log.i(TAG, "合并保存 ${stats.size} 天数据到本地")
-        stats.size
+        stats.size to null
     }
 
     // ── 仅部署脚本（供 UI 手动触发） ──────────────────────────
