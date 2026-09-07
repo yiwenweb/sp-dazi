@@ -32,10 +32,10 @@ class MjpegStreamClient(
   private val host: String,
   private val port: Int = 8081,
   private val onFrame: (jpeg: ByteArray, ptsUs: Long) -> Unit,
-  private val onFps: (Int) -> Unit = {},
-  private val onSize: (width: Int, height: Int) -> Unit = {},
-  private val onStatus: (connected: Boolean) -> Unit = {},
-  private val onError: (String) -> Unit = {}
+  private val onFps: (Int) -> Unit = { _ -> },
+  private val onSize: (width: Int, height: Int) -> Unit = { _, _ -> },
+  private val onStatus: (connected: Boolean) -> Unit = { _ -> },
+  private val onError: (String) -> Unit = { _ -> }
 ) {
   private val running = AtomicBoolean(false)
   private var worker: Thread? = null
