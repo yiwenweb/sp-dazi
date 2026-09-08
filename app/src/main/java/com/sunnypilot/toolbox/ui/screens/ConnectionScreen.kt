@@ -523,7 +523,7 @@ fun ConnectionScreen(
 private fun AuthTab(text: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = if (selected) Teal500 else Color.White,
+        color = if (selected) Teal500 else CardSurface,
         shadowElevation = if (selected) 0.dp else 2.dp,
         modifier = Modifier.clickable(onClick = onClick)
     ) {
@@ -531,7 +531,7 @@ private fun AuthTab(text: String, selected: Boolean, onClick: () -> Unit) {
             text = text,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium,
-            color = if (selected) Color.White else Slate600,
+            color = if (selected) OnAccent else Slate600,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
         )
     }

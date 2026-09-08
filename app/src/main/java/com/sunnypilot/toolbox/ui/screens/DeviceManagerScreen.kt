@@ -46,7 +46,8 @@ fun DeviceManagerScreen(
     var showSuggestionDialog by remember { mutableStateOf(false) }
     var showServiceDetailDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val suggestions = remember(status, healthScore) { generateSuggestions(status, healthScore) }
+    // generateSuggestions 内部读取主题色，因此不能在 remember{} 里调用
+    val suggestions = generateSuggestions(status, healthScore)
 
     fun performCheck() {
         scope.launch {
@@ -546,13 +547,15 @@ private fun HealthScoreCircle(score: Int) {
         else -> Red500
     }
     val sweepAngle = 360f * score / 100f
+    // DrawScope 内无法读取 CompositionLocal，先在组合作用域取出颜色
+    val trackColor = Slate200
 
     Box(
         modifier = Modifier
             .size(140.dp)
             .drawBehind {
                 drawArc(
-                    color = Slate200,
+                    color = trackColor,
                     startAngle = -90f,
                     sweepAngle = 360f,
                     useCenter = false,
@@ -816,6 +819,7 @@ private data class Suggestion(
     val actionLabel: String = "立即体检"
 )
 
+@Composable
 private fun generateSuggestions(status: DeviceStatus, healthScore: Int): List<Suggestion> {
     val list = mutableListOf<Suggestion>()
 

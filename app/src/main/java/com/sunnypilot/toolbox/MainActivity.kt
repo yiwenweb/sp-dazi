@@ -61,15 +61,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setFullScreen()
+        // 恢复上次选择的主题
+        ThemePreferences.restore(this)
         setContent {
-            SunnyPilotToolboxTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Background
+            val currentTheme by ThemePreferences.themeFlow.collectAsState()
+            SunnyPilotToolboxTheme(theme = currentTheme) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     MainScreen(
                         sshManager = sshManager,
-                        configRepository = configRepository
+                        configRepository = configRepository,
+                        currentTheme = currentTheme,
+                        onThemeSelected = { ThemePreferences.select(this@MainActivity, it) }
                     )
                 }
             }
@@ -113,7 +117,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     sshManager: SshManager,
-    configRepository: ConnectionConfigRepository
+    configRepository: ConnectionConfigRepository,
+    currentTheme: AppTheme,
+    onThemeSelected: (AppTheme) -> Unit
 ) {
     var selectedNav by remember { mutableStateOf(NavItem.Connection) }
     var isConnected by remember { mutableStateOf(sshManager.isConnected()) }
@@ -232,6 +238,8 @@ fun MainScreen(
                 TopBar(
                     moduleName = selectedNav.title,
                     isConnected = isConnected,
+                    currentTheme = currentTheme,
+                    onThemeSelected = onThemeSelected,
                     onRefresh = { isConnected = sshManager.isConnected() },
                     onSettings = { showSettingsDialog = true },
                     onDisconnect = onDisconnected

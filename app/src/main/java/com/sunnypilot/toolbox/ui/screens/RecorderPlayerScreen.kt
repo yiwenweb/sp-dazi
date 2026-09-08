@@ -97,7 +97,7 @@ private fun PlayerTopBar(segmentId: String, onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(Slate900)
+            .background(HudBackdrop)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         IconButton(onClick = onBack) {
@@ -572,6 +572,7 @@ private fun SetSpeedBox(setSpeed: Float) {
     }
 }
 
+@Composable
 private fun thermalColor(temp: Float): Color {
     return when {
         temp > 85 -> Red500

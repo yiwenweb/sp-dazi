@@ -612,7 +612,7 @@ private fun CameraSelector(
                     ) {
                         Text(
                             c.title,
-                            color = if (isSel) Color.White else Slate700,
+                            color = if (isSel) OnAccent else Slate700,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -777,14 +777,14 @@ private fun H264ServiceControlDialog(
                             onClick = onStopH264,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
                         ) {
-                            Text("停止", color = Color.White)
+                            Text("停止", color = OnAccent)
                         }
                     } else {
                         Button(
                             onClick = onStartH264,
                             colors = ButtonDefaults.buttonColors(containerColor = Green500)
                         ) {
-                            Text("启动", color = Color.White)
+                            Text("启动", color = OnAccent)
                         }
                     }
                 }
@@ -823,12 +823,12 @@ private fun H264ServiceControlDialog(
                         Icons.Filled.Upload,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
-                        tint = Color.White
+                        tint = OnAccent
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         if (redeploying) "上传中..." else "重新上传脚本",
-                        color = Color.White
+                        color = OnAccent
                     )
                 }
 
@@ -867,14 +867,14 @@ private fun H264ServiceControlDialog(
                             onClick = onStopHud,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
                         ) {
-                            Text("停止", color = Color.White)
+                            Text("停止", color = OnAccent)
                         }
                     } else {
                         Button(
                             onClick = onStartHud,
                             colors = ButtonDefaults.buttonColors(containerColor = Green500)
                         ) {
-                            Text("启动", color = Color.White)
+                            Text("启动", color = OnAccent)
                         }
                     }
                 }
@@ -918,7 +918,7 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
             onClick = onRetry,
             colors = ButtonDefaults.buttonColors(containerColor = Teal500)
         ) {
-            Text("重试", color = Color.White)
+            Text("重试", color = OnAccent)
         }
     }
 }

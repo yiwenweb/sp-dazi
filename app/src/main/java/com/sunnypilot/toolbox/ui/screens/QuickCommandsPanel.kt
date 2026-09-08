@@ -83,7 +83,7 @@ fun QuickCommandsPanel(
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Blue500),
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.QrCode2, contentDescription = "二维码", tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.QrCode2, contentDescription = "二维码", tint = OnAccent, modifier = Modifier.size(18.dp))
                     }
                     // 新增按钮
                     FilledIconButton(
@@ -94,7 +94,7 @@ fun QuickCommandsPanel(
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Teal500),
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "新增", tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Add, contentDescription = "新增", tint = OnAccent, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -271,7 +271,7 @@ private fun QrCodeDialog(
                     modifier = Modifier
                         .size(240.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White)
+                        .background(CardSurface)
                         .padding(12.dp),
                     contentAlignment = Alignment.Center
                 ) {

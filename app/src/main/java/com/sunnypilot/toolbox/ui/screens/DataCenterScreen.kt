@@ -679,17 +679,20 @@ private fun MetricCard(title: String, value: String, color: Color) {
 private fun CanvasRing(assisted: Float, manual: Float, total: Float) {
     val assistedSweep = if (total > 0) (assisted / total) * 360f else 0f
     val manualSweep = if (total > 0) (manual / total) * 360f else 0f
+    // DrawScope 内无法读取 CompositionLocal，先在组合作用域取出颜色
+    val assistedColor = Teal500
+    val manualColor = Blue500
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val stroke = Stroke(width = 18.dp.toPx(), cap = StrokeCap.Round)
         drawArc(
-            color = Teal500,
+            color = assistedColor,
             startAngle = -90f,
             sweepAngle = assistedSweep,
             useCenter = false,
             style = stroke
         )
         drawArc(
-            color = Blue500,
+            color = manualColor,
             startAngle = -90f + assistedSweep,
             sweepAngle = manualSweep,
             useCenter = false,

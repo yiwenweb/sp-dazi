@@ -484,7 +484,7 @@ private fun ParamCard(
                     colors = ButtonDefaults.buttonColors(containerColor = if (changed) Teal500 else Slate300)
                 ) {
                     if (saving) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = OnAccent, strokeWidth = 2.dp)
                     } else {
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))

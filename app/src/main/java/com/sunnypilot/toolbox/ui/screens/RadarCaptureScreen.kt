@@ -315,7 +315,7 @@ fun RadarCaptureScreen(
                     ) {
                         Surface(shape = RoundedCornerShape(6.dp), color = Teal500) {
                             Text("#${m.index}", fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                                color = Color.White, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                color = OnAccent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                         }
                         Spacer(Modifier.width(12.dp))
                         Text("${m.distanceM} m", fontSize = 17.sp, fontWeight = FontWeight.Bold,

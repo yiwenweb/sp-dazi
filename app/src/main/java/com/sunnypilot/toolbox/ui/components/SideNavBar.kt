@@ -1,6 +1,8 @@
 package com.sunnypilot.toolbox.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -8,16 +10,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.Color
 import com.sunnypilot.toolbox.ui.theme.*
 
 enum class NavItem(val title: String, val icon: ImageVector, val finished: Boolean = false) {
@@ -43,30 +45,58 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     About("关于", Icons.Default.Help)
 }
 
+private val NavShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
+
 @Composable
 fun SideNavBar(
     selectedItem: NavItem,
     onItemSelected: (NavItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = LocalAppColors.current
     val finishedItems = NavItem.values().filter { it.finished }
     val pendingItems = NavItem.values().filter { !it.finished }
 
-    Surface(
-        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
-        color = Background,
-        shadowElevation = 0.dp,
+    Box(
         modifier = modifier
             .fillMaxHeight()
             .width(88.dp)
+            .clip(NavShape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        colors.navSurface,
+                        colors.navSurface.copy(alpha = colors.navSurface.alpha * 0.72f)
+                    )
+                )
+            )
+            .border(BorderStroke(1.dp, colors.panelBorder), NavShape)
+            .padding(vertical = 14.dp)
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxHeight()
-                .padding(vertical = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            // 品牌标记
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.linearGradient(colors.primaryGradient)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DirectionsCar,
+                    contentDescription = "SunnyPilot",
+                    tint = colors.onAccent,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             finishedItems.forEach { item ->
                 NavButton(
                     item = item,
@@ -78,9 +108,8 @@ fun SideNavBar(
 
             if (pendingItems.isNotEmpty()) {
                 Divider(
-                    modifier = Modifier
-                        .padding(vertical = 8.dp, horizontal = 12.dp),
-                    color = Slate200
+                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp),
+                    color = DividerColor
                 )
             }
 
@@ -102,17 +131,17 @@ private fun NavButton(
     selected: Boolean,
     onClick: () -> Unit
 ) {
+    val colors = LocalAppColors.current
     val enabled = item.finished
-    val bgColor = when {
-        !enabled -> Color.Transparent
-        selected -> Teal50
-        else -> Color.Transparent
-    }
     val contentColor = when {
-        !enabled -> Slate400
-        selected -> Teal500
-        else -> Slate600
+        !enabled -> TextTertiary
+        selected -> colors.primary
+        else -> TextSecondary
     }
+    val pillBrush = Brush.verticalGradient(
+        listOf(colors.primarySoft, colors.accent2Soft)
+    )
+    val borderColor = if (selected) colors.primary.copy(alpha = 0.45f) else Color.Transparent
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -120,7 +149,8 @@ private fun NavButton(
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
+            .then(if (selected) Modifier.background(pillBrush) else Modifier)
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 10.dp, horizontal = 4.dp)
     ) {
@@ -134,7 +164,7 @@ private fun NavButton(
         Text(
             text = item.title,
             style = MaterialTheme.typography.labelLarge,
-            color = contentColor,
+            color = if (selected) TextPrimary else contentColor,
             textAlign = TextAlign.Center
         )
     }

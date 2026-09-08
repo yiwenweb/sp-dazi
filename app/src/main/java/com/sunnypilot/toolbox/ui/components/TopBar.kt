@@ -10,6 +10,10 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,10 +27,14 @@ import com.sunnypilot.toolbox.ui.theme.*
 fun TopBar(
     moduleName: String,
     isConnected: Boolean,
+    currentTheme: AppTheme,
+    onThemeSelected: (AppTheme) -> Unit,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
     onDisconnect: () -> Unit
 ) {
+    var showThemePicker by remember { mutableStateOf(false) }
+
     TopAppBar(
         title = {
             Row(
@@ -38,7 +46,7 @@ fun TopBar(
                 Text(
                     text = "当前模块：$moduleName",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Slate600
+                    color = TextSecondary
                 )
             }
         },
@@ -50,7 +58,7 @@ fun TopBar(
             ) {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
-                    color = Color.White,
+                    color = CardSurface,
                     shadowElevation = 2.dp
                 ) {
                     Row(
@@ -78,13 +86,7 @@ fun TopBar(
                 )
 
                 if (isConnected) {
-                    IconButton(
-                        onClick = onDisconnect,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White)
-                    ) {
+                    TopBarIconButton(onClick = onDisconnect) {
                         Icon(
                             imageVector = Icons.Default.LinkOff,
                             contentDescription = "断开连接",
@@ -93,47 +95,64 @@ fun TopBar(
                     }
                 }
 
-                IconButton(
-                    onClick = onRefresh,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White)
-                ) {
+                TopBarIconButton(onClick = onRefresh) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "刷新",
-                        tint = Slate600
+                        tint = TextSecondary
                     )
                 }
 
-                IconButton(
-                    onClick = onSettings,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White)
-                ) {
+                TopBarIconButton(onClick = onSettings) {
                     Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "设置",
-                        tint = Slate600
+                        tint = TextSecondary
                     )
                 }
+
+                // ── 主题入口（右上角）──
+                ThemePickerButton(onClick = { showThemePicker = true })
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Background,
-            titleContentColor = Slate900
+            containerColor = Color.Transparent,
+            titleContentColor = TextPrimary
         )
     )
+
+    ThemePickerPopup(
+        expanded = showThemePicker,
+        currentTheme = currentTheme,
+        onDismiss = { showThemePicker = false },
+        onSelect = { theme ->
+            onThemeSelected(theme)
+            showThemePicker = false
+        }
+    )
+}
+
+@Composable
+private fun TopBarIconButton(
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(CardSurface)
+    ) {
+        content()
+    }
 }
 
 @Composable
 private fun DeviceBadge(isConnected: Boolean) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = Color.White,
+        color = CardSurface,
         shadowElevation = 2.dp
     ) {
         Row(
@@ -151,7 +170,7 @@ private fun DeviceBadge(isConnected: Boolean) {
                 text = "Comma C3",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = Slate900
+                color = TextPrimary
             )
         }
     }
@@ -161,7 +180,7 @@ private fun DeviceBadge(isConnected: Boolean) {
 private fun ConnectionPath() {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = Color.White,
+        color = CardSurface,
         shadowElevation = 2.dp
     ) {
         Row(
@@ -190,16 +209,18 @@ private fun PathItem(text: String, active: Boolean) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelLarge,
-            color = if (active) Slate900 else Slate400
+            color = if (active) TextPrimary else Slate400
         )
     }
 }
 
 @Composable
 fun StatusChip(text: String, isActive: Boolean) {
+    val bg = if (isActive) LocalAppColors.current.successSoft else SoftSurface
+    val dot = if (isActive) Green500 else Slate400
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = if (isActive) Green100 else Slate100,
+        color = bg,
         shadowElevation = 0.dp
     ) {
         Row(
@@ -210,14 +231,14 @@ fun StatusChip(text: String, isActive: Boolean) {
                 modifier = Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(if (isActive) Green500 else Slate400)
+                    .background(dot)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = if (isActive) Slate900 else Slate600
+                color = if (isActive) TextPrimary else TextSecondary
             )
         }
     }
