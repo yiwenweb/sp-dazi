@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.repository.MjpegRecorder
 import com.sunnypilot.toolbox.data.repository.MjpegStreamClient
+import com.sunnypilot.toolbox.data.repository.SuperVideoClient
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
