@@ -85,7 +85,7 @@ class SuperVideoClient(
   }
 
   private fun streamLoop(input: InputStream) {
-    val decoderController = DecoderController(surface) { fps -> onFps(fps) }
+    val decoderController = DecoderController({ surface }, onFps)
     try {
       val buf = ByteArray(256 * 1024)
       val carry = ByteArray(1024 * 1024)
