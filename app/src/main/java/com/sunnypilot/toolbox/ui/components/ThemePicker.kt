@@ -53,11 +53,14 @@ fun ThemePickerButton(
     modifier: Modifier = Modifier
 ) {
     val brush = primaryBrush()
+    val colors = LocalAppColors.current
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = modifier
             .size(40.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(brush)
+            .border(1.dp, colors.panelBorder, shape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -65,7 +68,7 @@ fun ThemePickerButton(
             imageVector = Icons.Default.Palette,
             contentDescription = "主题外观",
             tint = OnAccent,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(22.dp)
         )
     }
 }

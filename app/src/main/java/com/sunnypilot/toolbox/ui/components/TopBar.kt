@@ -1,6 +1,8 @@
 package com.sunnypilot.toolbox.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sunnypilot.toolbox.ui.theme.*
@@ -52,64 +55,39 @@ fun TopBar(
         },
         actions = {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(end = 16.dp)
+                modifier = Modifier.padding(end = 20.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = CardSurface,
-                    shadowElevation = 2.dp
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            tint = Amber500,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "命令桥",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Amber500
-                        )
-                    }
-                }
-
                 StatusChip(
                     text = if (isConnected) "已连接" else "未连接",
                     isActive = isConnected
                 )
 
+                Spacer(modifier = Modifier.width(2.dp))
+
                 if (isConnected) {
-                    TopBarIconButton(onClick = onDisconnect) {
-                        Icon(
-                            imageVector = Icons.Default.LinkOff,
-                            contentDescription = "断开连接",
-                            tint = Red500
-                        )
-                    }
-                }
-
-                TopBarIconButton(onClick = onRefresh) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "刷新",
-                        tint = TextSecondary
+                    TopBarActionButton(
+                        onClick = onDisconnect,
+                        imageVector = Icons.Default.LinkOff,
+                        contentDescription = "断开连接",
+                        tint = Red500
                     )
                 }
 
-                TopBarIconButton(onClick = onSettings) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "设置",
-                        tint = TextSecondary
-                    )
-                }
+                TopBarActionButton(
+                    onClick = onRefresh,
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "刷新",
+                    tint = TextSecondary
+                )
+
+                TopBarActionButton(
+                    onClick = onSettings,
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "设置",
+                    tint = TextSecondary
+                )
 
                 // ── 主题入口（右上角）──
                 ThemePickerButton(onClick = { showThemePicker = true })
@@ -132,19 +110,34 @@ fun TopBar(
     )
 }
 
+/**
+ * 顶栏统一图标按钮：40×40 圆角方块 + 22dp 图标 + 1dp 描边。
+ * 右上角所有图标（断开 / 刷新 / 设置 / 主题）都走这里，保证风格与尺寸一致。
+ */
 @Composable
-private fun TopBarIconButton(
+private fun TopBarActionButton(
     onClick: () -> Unit,
-    content: @Composable () -> Unit
+    imageVector: ImageVector,
+    contentDescription: String,
+    tint: Color
 ) {
-    IconButton(
-        onClick = onClick,
+    val colors = LocalAppColors.current
+    val shape = RoundedCornerShape(12.dp)
+    Box(
         modifier = Modifier
             .size(40.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(CardSurface)
+            .clip(shape)
+            .background(colors.cardSurface)
+            .border(1.dp, colors.panelBorder, shape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        content()
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(22.dp)
+        )
     }
 }
 
