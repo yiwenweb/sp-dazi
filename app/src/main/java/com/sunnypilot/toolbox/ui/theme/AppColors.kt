@@ -19,6 +19,11 @@ data class AppColors(
     val bgBottom: Color,
     /** 背景光晕（带透明度），用于径向渐变氛围光 */
     val bgGlow: Color,
+    /**
+     * 次氛围光（左下角）。默认无；毛玻璃这类需要「有色衬底」的主题才设置，
+     * 让半透明面板有颜色可透，否则玻璃叠在纯暗底上会发灰。
+     */
+    val bgGlow2: Color = Color.Transparent,
 
     // ── 面板 / 卡片 ──
     val panel: Color,
@@ -224,19 +229,79 @@ private val EmberColors = AppColors(
     previewGradient = listOf(Color(0xFF100C07), Color(0xFF7C2D12), Color(0xFFFFB020))
 )
 
+/**
+ * ④ 晶透玻璃：iOS 26「Liquid Glass」风格
+ *
+ * 实现思路：面板 / 卡片 / 导航全部使用**半透明白**（15%~20%），
+ * 直接叠在根布局的深空蓝紫渐变上，透出底层色彩 —— 这就是可移植的毛玻璃
+ * （真模糊 RenderEffect 需要 API 31，车机普遍是 Android 7~10，用不了）。
+ * 描边用半透明白模拟玻璃高光边缘；强调色取 iOS 系统色 蓝 / 青 / 紫。
+ */
+private val GlassColors = AppColors(
+    isDark = true,
+    bgTop = Color(0xFF050813),
+    bgMid = Color(0xFF0A1230),
+    bgBottom = Color(0xFF1B0F3E),
+    bgGlow = Color(0x735EA8FF),
+    bgGlow2 = Color(0x59BF5AF2),
+
+    panel = Color(0x2EFFFFFF),
+    panelAlt = Color(0x21FFFFFF),
+    panelBorder = Color(0x47FFFFFF),
+    softSurface = Color(0x1AFFFFFF),
+    softSurfaceStrong = Color(0x30FFFFFF),
+    cardSurface = Color(0x26FFFFFF),
+    navSurface = Color(0x1CFFFFFF),
+
+    textPrimary = Color(0xFFFFFFFF),
+    textStrong = Color(0xFFF3F7FF),
+    textSecondary = Color(0xFFC6D5F3),
+    textTertiary = Color(0xFFA3B6DC),
+    textMuted = Color(0xFF7E91BA),
+
+    divider = Color(0x26FFFFFF),
+    dividerStrong = Color(0x45FFFFFF),
+
+    primary = Color(0xFF64D2FF),
+    primaryStrong = Color(0xFF0A84FF),
+    primarySoft = Color(0x360A84FF),
+    onAccent = Color(0xFF03101F),
+    accent2 = Color(0xFFBF5AF2),
+    accent2Soft = Color(0x36BF5AF2),
+    accent3 = Color(0xFF5EE6C6),
+    accent3Soft = Color(0x2E5EE6C6),
+    primaryGradient = listOf(Color(0xFF7EE0FF), Color(0xFF0A84FF), Color(0xFFBF5AF2)),
+
+    success = Color(0xFF30D158),
+    successStrong = Color(0xFF248A3D),
+    successSoft = Color(0x2E30D158),
+    warning = Color(0xFFFF9F0A),
+    warningStrong = Color(0xFFC77C08),
+    warningSoft = Color(0x30FF9F0A),
+    danger = Color(0xFFFF453A),
+    dangerStrong = Color(0xFFD6342B),
+    dangerSoft = Color(0x30FF453A),
+    info = Color(0xFF64D2FF),
+    infoSoft = Color(0x2E64D2FF),
+
+    previewGradient = listOf(Color(0xFF050813), Color(0xFF0A84FF), Color(0xFFBF5AF2))
+)
+
 // endregion
 
 /** 主题标识，与持久化存储中的 id 一一对应 */
 enum class AppTheme(val id: String, val label: String, val subtitle: String, val emoji: String) {
     SYSTEM("system", "系统默认", "清爽浅色 · 原厂配色", "◻"),
     OBSIDIAN("obsidian", "曜石深空", "深空蓝 · 电光青霓虹", "◆"),
-    EMBER("ember", "琥珀机械", "暖金橙 · 机械质感", "❖");
+    EMBER("ember", "琥珀机械", "暖金橙 · 机械质感", "❖"),
+    GLASS("glass", "晶透玻璃", "iOS 液景 · 半透叠层", "◍");
 
     val colors: AppColors
         get() = when (this) {
             SYSTEM -> SystemColors
             OBSIDIAN -> ObsidianColors
             EMBER -> EmberColors
+            GLASS -> GlassColors
         }
 
     val isDark: Boolean get() = colors.isDark

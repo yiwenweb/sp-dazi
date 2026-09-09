@@ -53,6 +53,16 @@ fun SunnyPilotToolboxTheme(
                                     radius = size.width * 0.85f
                                 )
                             )
+                            // 左下角次氛围光（毛玻璃主题用它做有色衬底）
+                            if (colors.bgGlow2 != Color.Transparent) {
+                                drawRect(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(colors.bgGlow2, Color.Transparent),
+                                        center = Offset(size.width * 0.10f, size.height * 1.02f),
+                                        radius = size.width * 0.75f
+                                    )
+                                )
+                            }
                         }
                 ) {
                     content()
