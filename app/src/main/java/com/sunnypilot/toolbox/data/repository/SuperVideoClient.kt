@@ -294,6 +294,11 @@ class SuperVideoClient(
     private var boundGeneration = -1
     private var naluCount = 0
     private var lastLogNalu = 0
+    /**
+     * 喂给 MediaCodec 的 presentationTimeUs，从 0 起按 1/30 秒递增。
+     * 绝不使用 System.nanoTime()/1000（详见 feedAndDrain 内注释）。
+     */
+    private var feedPtsUs = 0L
 
     private var frameCount = 0
     private var lastFpsTime = System.nanoTime()
@@ -381,8 +386,13 @@ class SuperVideoClient(
       if (gotSps && gotPps && codec == null) {
         tryConfigureDecoder()
       }
-      // SPS/PPS 已作为 CSD 交给解码器，不再重复喂入数据队列。
-      if (type == 7 || type == 8) return
+      // SPS/PPS 既要作为 CSD 提交（configure 时已做），也要按原样喂进数据队列。
+      //
+      // 踩坑记录：早先这里直接 `if (type == 7 || type == 8) return`，即 SPS/PPS 只
+      // 通过 CSD 出现一次、数据流里再无它们。PC 端对照实验（见 feedAndDrain 注释的
+      // D1/D2/D3 组）显示：只有「CSD 有 SPS/PPS」+「数据流里也有 SPS/PPS」的组合能出帧。
+      // 原因是 C3 编码器每个 GOP 都重发 IDR，而带内 SPS/PPS 是解码器重新同步参数集的
+      // 唯一依据；只给 CSD 的话，解码器在收到新 IDR 时无参数集可用 → 静默丢弃。
       codec?.let { feedAndDrain(nalu, type == 5) } ?: run {
         bump("drop_nocodec")
         if (naluCount <= 8 || naluCount % 200 == 0) {
@@ -448,6 +458,7 @@ class SuperVideoClient(
           boundGeneration = surfaceGeneration
           totalQueued = 0
           totalOutputs = 0
+          feedPtsUs = 0L
           bump("cfg_ok")
           if (surfaceProvider() == null) bump("surf_fb") else bump("surf_direct")
           diag("解码器已启动: $codecName（待验证出帧）")
@@ -523,13 +534,33 @@ class SuperVideoClient(
         if (inIdx >= 0) {
           val inBuf = c.getInputBuffer(inIdx) ?: return
           inBuf.clear()
-          // 部分设备固件对"带 start code 的 Annex-B"处理不一致，统一去掉
-          // start code 只喂裸 NALU（与 CSD 的 stripStartCode 保持一致）。
-          val payload = stripStartCode(nalu)
-          if (payload.isEmpty()) { bump("drop_empty"); return }
+          // 必须保留 Annex-B start code！
+          //
+          // 踩坑记录（2026-09-10，PC 端逐字节复现）：
+          // 早先这里调用了 stripStartCode(nalu)，把 00 00 00 01 剥掉后喂裸 NALU。
+          // 结果：真机 4 款解码器（OMX.hisi.video.decoder.avc / c2.android.avc.decoder /
+          // OMX.google.h264.decoder / default）全部「入 2436 帧、出 0 帧」，且不报任何错。
+          // 原因是裸 NALU 之间没有分隔符，解码器把 IDR(105KB) 与紧随其后的 P 帧(14KB)
+          // 误判为同一个访问单元，语法层直接解析失败 → 静默丢弃。
+          //
+          // PC 端用同一份 C3 抓包做对照实验：
+          //   A) 保留 start code 的完整 Annex-B 连续流 → 125 帧 ✅
+          //   B) 剥离 start code、每 NALU 独立喂 → 0 帧 ❌（与 App 症状完全一致）
+          //   C) extradata=SPS/PPS + 数据带 start code → 0 帧 ❌
+          // 结论：数据层必须原样保留 start code。
+          val payload = nalu
+          if (payload.size <= 4) { bump("drop_empty"); return }
           inBuf.put(payload)
           val flags = if (keyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-          c.queueInputBuffer(inIdx, 0, payload.size, System.nanoTime() / 1000, flags)
+          // pts 必须从 0 开始单调递增，不能用 System.nanoTime()/1000。
+          //
+          // 踩坑记录：System.nanoTime()/1000 等于「设备开机至今的微秒数」，在开机
+          // 数天后会达到 1e11 量级，远超 32 位有符号上限（约 2.1e9）。部分厂商 OMX
+          // 实现内部以 int32 承载 presentationTimeUs，溢出后变成随机负数/乱值，
+          // 导致解码器把所有帧当成"时间戳异常"而静默丢弃 → 同样是「入 N 帧、出 0 帧」。
+          // 这里改为按流内帧序号推算时间轴，从 0 起步、步长 1/30 秒。
+          c.queueInputBuffer(inIdx, 0, payload.size, feedPtsUs, flags)
+          feedPtsUs += 33_333L
           bump("queued")
           totalQueued += payload.size
         } else {
@@ -569,6 +600,7 @@ class SuperVideoClient(
       codec = null
       totalQueued = 0
       totalOutputs = 0
+      feedPtsUs = 0L
 
       // 如果所有具名候选都被判死了，说明问题不在"选哪个解码器"上：
       // 重建整个连接，让上层重连重新走一遍协商（拿新的 SPS/PPS + 关键帧）。
@@ -658,9 +690,20 @@ class SuperVideoClient(
     @Volatile var rawDumpEnabled = false
     private var rawDumpPath: String? = null
 
+    /**
+     * 打开原始字节落盘。优先写外部公共目录 /sdcard/Download/，这样**未签名的
+     * release 包**也能用 `adb pull` 直接取回（release 包无法 `run-as` 读 filesDir）。
+     * 外部目录不可用时回退到传入的私有目录。
+     */
     @JvmStatic
     fun setRawDump(dir: java.io.File?) {
-      rawDumpPath = dir?.let { java.io.File(it, "recv_dump.h264").absolutePath }
+      val ext = java.io.File("/sdcard/Download")
+      val target = if (ext.isDirectory && ext.canWrite()) {
+        java.io.File(ext, "recv_dump.h264")
+      } else {
+        dir?.let { java.io.File(it, "recv_dump.h264") }
+      }
+      rawDumpPath = target?.absolutePath
       rawDumpEnabled = rawDumpPath != null
     }
   }
