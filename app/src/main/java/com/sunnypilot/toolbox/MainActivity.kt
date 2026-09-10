@@ -47,6 +47,7 @@ import com.sunnypilot.toolbox.ui.screens.LateralTuneScreen
 import com.sunnypilot.toolbox.ui.screens.RecorderScreen
 import com.sunnypilot.toolbox.ui.screens.TerminalScreen
 import com.sunnypilot.toolbox.ui.screens.VideoPreviewScreen
+import com.sunnypilot.toolbox.ui.screens.SuperVideo2Screen
 import com.sunnypilot.toolbox.ui.screens.FileScreen
 import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -289,6 +290,9 @@ fun MainScreen(
                                 sshManager = sshManager
                             )
                             NavItem.Video -> VideoPreviewScreen(
+                                sshManager = sshManager
+                            )
+                            NavItem.Video2 -> SuperVideo2Screen(
                                 sshManager = sshManager
                             )
                             NavItem.Files -> FileScreen(
