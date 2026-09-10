@@ -106,6 +106,39 @@ fun SuperVideo2Screen(
 
   // ═══════════════════ 一键部署 + 拉流 ═══════════════════
 
+  // 注意：Kotlin 不允许在局部作用域内**前向引用**局部函数，
+  // 因此 startStream / stopAll 必须声明在 startEverything 之前。
+  fun startStream() {
+    val h = host ?: return
+    if (clientRef.value != null) return
+    val c = SuperVideo2Client(
+      host = h,
+      videoPort = C3ScreenStreamDeployer.VIDEO_PORT,
+      touchPort = C3ScreenStreamDeployer.TOUCH_PORT,
+      onFps = { fps = it },
+      onStatus = { sConnected = it },
+      onResolution = { w, hh -> streamW = w; streamH = hh },
+      onDiag = { diag = it }
+    )
+    c.setFallbackSurfaceProvider {
+      val tv = textureViewRef.value
+      if (tv != null && tv.isAvailable && tv.surfaceTexture != null) Surface(tv.surfaceTexture)
+      else null
+    }
+    clientRef.value = c
+    c.start()
+    streaming = true
+  }
+
+  fun stopAll() {
+    clientRef.value?.stop()
+    clientRef.value = null
+    streaming = false
+    sConnected = false
+    fps = 0
+    diag = emptyList()
+  }
+
   fun startEverything() {
     if (host.isNullOrBlank()) {
       Toast.makeText(context, "请先在连接中心建立与 C3 的 SSH 连接", Toast.LENGTH_LONG).show()
@@ -147,37 +180,6 @@ fun SuperVideo2Screen(
         }
       }
     }
-  }
-
-  fun startStream() {
-    val h = host ?: return
-    if (clientRef.value != null) return
-    val c = SuperVideo2Client(
-      host = h,
-      videoPort = C3ScreenStreamDeployer.VIDEO_PORT,
-      touchPort = C3ScreenStreamDeployer.TOUCH_PORT,
-      onFps = { fps = it },
-      onStatus = { sConnected = it },
-      onResolution = { w, hh -> streamW = w; streamH = hh },
-      onDiag = { diag = it }
-    )
-    c.setFallbackSurfaceProvider {
-      val tv = textureViewRef.value
-      if (tv != null && tv.isAvailable && tv.surfaceTexture != null) Surface(tv.surfaceTexture)
-      else null
-    }
-    clientRef.value = c
-    c.start()
-    streaming = true
-  }
-
-  fun stopAll() {
-    clientRef.value?.stop()
-    clientRef.value = null
-    streaming = false
-    sConnected = false
-    fps = 0
-    diag = emptyList()
   }
 
   // 离开页面时停掉拉流（推流进程留在 C3，下次进来重连即可）
