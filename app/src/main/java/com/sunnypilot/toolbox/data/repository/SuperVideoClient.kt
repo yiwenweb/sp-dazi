@@ -153,14 +153,28 @@ class SuperVideoClient(
   class DecoderDeadException : RuntimeException("all codec candidates dead")
 
   /**
-   * "假解码器"黑名单 —— 整个 client 生命周期内持久存在，**不随重连清空**。
+   * "假解码器"黑名单 —— **仅对同一条 TCP 连接（同一个 streamLoop 会话）有效**。
    *
-   * 理由：LDDec 这类 shim 是设备固件层面的问题，重连一万次它还是解不出帧。
-   * 若每次重连都重新尝试它，就会白白吃掉 1.5MB 输入、浪费十几秒，
-   * 在只有两个候选解码器的模拟器上更是会来回打转。
-   * 因此一旦某个候选被证实"喂了 1.5MB 都不出帧"，就永久排除。
+   * 历史教训（2026-09-10，真机实测）：早先这里挂在 client 上、整个生命周期持久存在，
+   * 结果是「第一次尝试失败后，真正的硬解器 OMX.hisi.video.decoder.avc 被永久排除」，
+   * 之后每一轮都只打印 `decoder started: name=default`，而
+   * `available avc decoders: [OMX.hisi.video.decoder.avc, c2.android.avc.decoder,
+   * OMX.google.h264.decoder]` 明明列着三个候选。
+   *
+   * 后果极其严重：我们所有的"这个解码器不吃输入 / 不出帧"结论，其实都是在
+   * `null -> createDecoderByType()` 这个**非确定性兜底**上测出来的，完全不能代表
+   * 厂商硬解器的真实行为。诊断被自己的缓存污染，白走了一大段弯路。
+   *
+   * 现在改为 per-connection 作用域：新建连接 = 重新评估所有候选。
+   * 只做一层轻量的"首选优化"——曾经出过帧的候选排到最前，但不排斥任何候选。
    */
   private val codecBlacklist = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+  /** 曾成功出过帧的候选，重连后优先尝试（不排斥其它候选）。 */
+  private val codecPreferred = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+  /** 连接会话号：每进入一次 streamLoop +1，用于给黑名单划作用域。 */
+  @Volatile private var sessionEpoch = 0
 
   private fun runLoop() {
     while (running.get()) {
@@ -206,6 +220,13 @@ class SuperVideoClient(
   }
 
   private fun streamLoop(input: InputStream) {
+    // 新连接 = 新会话：清空黑名单，让所有候选（尤其是厂商硬解器）重新获得一次机会。
+    // 详见 codecBlacklist 的注释 —— 曾经的 client 级持久黑名单把诊断彻底带偏了。
+    if (codecBlacklist.isNotEmpty()) {
+      Log.i(TAG, "new session: clearing codec blacklist $codecBlacklist")
+    }
+    codecBlacklist.clear()
+    sessionEpoch++
     val decoderController = DecoderController({ surface }, surfaceGeneration, onFps)
     // 诊断：把收到的字节原样落盘（与 PC 抓包逐字节比对）
     val dumpOut = if (rawDumpEnabled) {
@@ -313,10 +334,26 @@ class SuperVideoClient(
     private val triedCodecNames: MutableSet<String> get() = codecBlacklist
     /**
      * 已喂入多少字节仍无任何输出，就判定该解码器是死的。
-     * 取 1.5MB：C3 一个 IDR 约 80–100KB，1.5MB ≈ 15 帧，
-     * 足以排除"只是还没攒够"的正常延迟，又不会让用户等太久。
+     * 取 4MB：C3 一个 IDR 约 80–105KB，4MB ≈ 40+ 帧，
+     * 足以排除"只是还没攒够"的正常延迟（硬解器首帧前常需若干帧对齐），
+     * 又不会让用户等太久。早先的 1.5MB（≈15 帧）过于激进：在华为真机上
+     * OMX.hisi.video.decoder.avc 恰好会在约 1.6MB 处被判死，随后被 client 级
+     * 黑名单永久排除，导致后续所有轮次都退化成 `name=default` —— 诊断彻底失真。
      */
-    private val noOutputByteLimit = 1536L * 1024
+    private val noOutputByteLimit = 4L * 1024 * 1024
+
+    /** 判死前的最短观察时长：给硬解器留出内部流水线建立的时间。 */
+    private val noOutputMinDurationMs = 4000L
+
+    /** 诊断：记录每次 dequeueOutputBuffer 的非 TRY_AGAIN 返回值出现次数。 */
+    private var sawOutputBuffersChanged = 0
+    private var sawTryAgain = 0
+    /** 诊断：本轮解码器成功 queue 的次数。 */
+    private var queuedCount = 0
+    /** 诊断：本轮是否观察到"输入缓冲被真正回收"（dequeueInputBuffer 曾失败过）。 */
+    private var sawInputStarved = 0
+    /** 本轮解码器的创建时刻，配合 noOutputMinDurationMs 做延迟判死。 */
+    private var codecCreatedAt = 0L
 
     /**
      * 上一次枚举到的**具名**候选解码器（不含末尾的 null 兜底）。
@@ -459,6 +496,11 @@ class SuperVideoClient(
           totalQueued = 0
           totalOutputs = 0
           feedPtsUs = 0L
+          queuedCount = 0
+          sawTryAgain = 0
+          sawInputStarved = 0
+          sawOutputBuffersChanged = 0
+          codecCreatedAt = System.currentTimeMillis()
           bump("cfg_ok")
           if (surfaceProvider() == null) bump("surf_fb") else bump("surf_direct")
           diag("解码器已启动: $codecName（待验证出帧）")
@@ -510,8 +552,11 @@ class SuperVideoClient(
         // 真机：硬解优先（省电、低延迟），软解兜底
         others + software
       }
-      // 末尾补一个"交给系统默认"的兜底
-      return ordered + listOf(null)
+      // 曾出过帧的候选提到最前（不排斥其它候选，只是少走弯路）
+      val (preferred, rest) = ordered.partition { it in codecPreferred }
+      // 末尾补一个"交给系统默认"的兜底 —— 只有在具名候选全部失败时才会用到。
+      // 注意：这个兜底是**非确定性**的，千万不要用它来做解码器行为的判据。
+      return preferred + rest + listOf(null)
     }
 
     private fun stripStartCode(nalu: ByteArray): ByteArray {
@@ -527,7 +572,10 @@ class SuperVideoClient(
         drainOutput(c)
         var inIdx = c.dequeueInputBuffer(10_000)
         if (inIdx < 0) {
-          // 输入缓冲暂时耗尽（解码器落后），排空输出后重试一次，避免丢帧
+          // 输入缓冲暂时耗尽（解码器落后），排空输出后重试一次，避免丢帧。
+          // 这也是**解码器确实在消费输入**的最直接证据：只有当它把已提交的
+          // 输入缓冲真正交还回来，dequeueInputBuffer 才可能返回 <0。
+          sawInputStarved++
           drainOutput(c)
           inIdx = c.dequeueInputBuffer(10_000)
         }
@@ -562,6 +610,7 @@ class SuperVideoClient(
           c.queueInputBuffer(inIdx, 0, payload.size, feedPtsUs, flags)
           feedPtsUs += 33_333L
           bump("queued")
+          queuedCount++
           totalQueued += payload.size
         } else {
           bump("drop_nobuf")
@@ -584,17 +633,41 @@ class SuperVideoClient(
      *
      * LDDec 这类 shim 的特征：queueInputBuffer 全部接受、不报错、不返回错误码，
      * 但内部根本不解码，dequeueOutputBuffer 永远只有 TRY_AGAIN_LATER。
-     * 因此判据是「已喂 N 字节仍 0 输出」。命中后标记该 codec 名称不可用并重建。
+     * 因此判据是「已喂 N 字节仍 0 输出」。
+     *
+     * 判死条件（两个都要满足，避免误杀真硬解器）：
+     *   1. totalQueued >= noOutputByteLimit（样本足够）
+     *   2. 距离解码器创建已过 noOutputMinDurationMs（时间足够）
+     *
+     * 并且**只把真正被证伪的具名候选加入黑名单**；`default`（createDecoderByType
+     * 的非确定性兜底）不入黑名单 —— 它每次解析到的组件都可能不同，记下它没有意义，
+     * 反而会让后续轮次跳过它、连兜底机会都没有。
      */
     private fun checkCodecAlive(): Boolean {
       val c = codec ?: return true
       if (totalOutputs > 0) return true                    // 已出过帧，健康
       if (totalQueued < noOutputByteLimit) return true     // 样本还不够
+      if (System.currentTimeMillis() - codecCreatedAt < noOutputMinDurationMs) {
+        return true                                        // 时间还不够（硬解器首帧延迟）
+      }
       // 判定为死解码器
-      triedCodecNames.add(codecName)
+      if (codecName != "default") {
+        triedCodecNames.add(codecName)
+        diag("解码器 $codecName 无输出（喂入 ${totalQueued / 1024}KB / 0 帧），换下一个")
+        Log.w(TAG, "codec $codecName is DEAD: queued=${totalQueued}B/0 frames, dropping")
+      } else {
+        // default 兜底不计入黑名单，只记日志。否则会把"最后一次机会"也关掉。
+        diag("兜底解码器 default 无输出（喂入 ${totalQueued / 1024}KB / 0 帧）")
+        Log.w(TAG, "default(codec=null) produced 0 frames after ${totalQueued}B")
+      }
       bump("codec_dead")
-      diag("解码器 $codecName 无输出（喂入 ${totalQueued / 1024}KB / 0 帧），换下一个")
-      Log.w(TAG, "codec $codecName is DEAD: queued=${totalQueued}B/0 frames, dropping")
+      // 诊断：判死前把关键指标一次性打全，用于区分"没消费输入"和"消费了但不出帧"
+      Log.w(TAG, "DEAD-DIAG name=$codecName queued=${totalQueued}B " +
+              "queuedCount=$queuedCount tryAgain=$sawTryAgain " +
+              "starved=$sawInputStarved outChanged=$sawOutputBuffersChanged " +
+              "outputs=$totalOutputs elapsedMs=${System.currentTimeMillis() - codecCreatedAt} " +
+              "inBufSize=${runCatching { c.inputBuffers?.size }.getOrNull()} " +
+              "outBufSize=${runCatching { c.outputBuffers?.size }.getOrNull()}")
       runCatching { c.stop() }
       runCatching { c.release() }
       codec = null
@@ -604,6 +677,7 @@ class SuperVideoClient(
 
       // 如果所有具名候选都被判死了，说明问题不在"选哪个解码器"上：
       // 重建整个连接，让上层重连重新走一遍协商（拿新的 SPS/PPS + 关键帧）。
+      // 注意 lastNamedCandidates 要去掉 default 语义上的歧义（这里已是纯具名列表）。
       val allNamedDead = lastNamedCandidates.isNotEmpty() &&
         lastNamedCandidates.all { it in triedCodecNames }
       if (allNamedDead) {
@@ -626,6 +700,12 @@ class SuperVideoClient(
             totalOutputs++
             if (totalOutputs == 1L) {
               diag("首帧已解码并渲染（$codecName）")
+              // 该候选确实能工作：记入 preferred，重连时优先复用（但不排斥其它）
+              if (codecName != "default") codecPreferred.add(codecName)
+              Log.i(TAG, "FIRST FRAME ok name=$codecName " +
+                      "after=${totalQueued}B/" +
+                      "${System.currentTimeMillis() - codecCreatedAt}ms " +
+                      "starved=$sawInputStarved tryAgain=$sawTryAgain")
               publishDiag(true)
             }
           }
@@ -639,7 +719,7 @@ class SuperVideoClient(
             onResolution(fw, fh)
           }
           outIdx == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> { /* legacy, ignore */ }
-          outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> break
+          outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> { sawTryAgain++; break }
           else -> break
         }
       }
