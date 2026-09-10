@@ -36,7 +36,7 @@ import java.security.MessageDigest
  * 1. 从 APK assets 读出 `c3screen/c3-screen-v2.tar`（离线自足，不依赖任何外部服务器）
  * 2. 校验 md5（防资产损坏 / 传输截断）
  * 3. SFTP 上传到 `/data/local/tmp/c3-screen-v2.tar`
- * 4. 远端解包到 `/tmp/c3-pkg`（**必须解到 /tmp，因为 install.sh 用 `$0` 定位同级 bin/**）
+ * 4. 远端解包到 `/tmp/c3-pkg`（必须解到 /tmp，因为 install.sh 用 `$0` 定位同级 `bin/` 目录）
  * 5. 执行 `install.sh`（原子替换 7 个文件 + 拉起 weston_tiny_guard + touch_proxy + 推流）
  * 6. 校验 5000 / 27184 两个端口在监听
  *
@@ -104,7 +104,7 @@ class C3ScreenStreamDeployer(
   }
 
   /**
-   * 执行完整部署。这是一个**阻塞式**的 suspend 函数，调用方应在 IO 上下文里跑，
+   * 执行完整部署。这是一个阻塞式的 suspend 函数，调用方应在 IO 上下文里跑，
    * 并通过 [onStage] 把进度打到 UI。
    *
    * @param onStage 每个阶段开始时回调（stage, 人类可读描述）
@@ -207,7 +207,7 @@ class C3ScreenStreamDeployer(
         "rm -rf $REMOTE_PKG_DIR && mkdir -p $REMOTE_PKG_DIR && " +
           "tar -xf $REMOTE_TAR -C $REMOTE_PKG_DIR 2>&1 && " +
           "chmod 755 $REMOTE_PKG_DIR/install.sh $REMOTE_PKG_DIR/start-native.sh " +
-          "$REMOTE_PKG_DIR/touch_proxy.py $REMOTE_PKG_DIR/bin/* && " +
+          "$REMOTE_PKG_DIR/touch_proxy.py $REMOTE_PKG_DIR/bin/[a-z]* && " +
           "ls -l $REMOTE_PKG_DIR $REMOTE_PKG_DIR/bin | head -20"
       )
       extract.onFailure { return Result2.Fail(Stage.EXTRACT, "解包失败：${it.message}", log) }
