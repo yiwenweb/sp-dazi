@@ -82,6 +82,8 @@ fun VideoPreviewScreen(
   var h264H by remember { mutableIntStateOf(0) }
   val h264ClientRef = remember { mutableStateOf<SuperVideoClient?>(null) }
   val textureViewRef = remember { mutableStateOf<TextureView?>(null) }
+  // 诊断信息：直接在画面上显示解码链路状态，免 adb 也能定位黑屏原因
+  val h264Diag = remember { mutableStateOf<List<String>>(emptyList()) }
 
   val imageViewRef = remember { mutableStateOf<ImageView?>(null) }
   val recorder = remember { MjpegRecorder(context) }
@@ -129,7 +131,7 @@ fun VideoPreviewScreen(
         onFps = { h264Fps = it },
         onStatus = { h264Connected = it },
         onResolution = { w, h -> h264W = w; h264H = h },
-        onError = { _ -> }
+        onDiag = { h264Diag.value = it }
       )
       h264ClientRef.value = c
       // 兜底：若两条 Compose 绑定路径都错过，worker 会自己向 TextureView 取 Surface
@@ -343,6 +345,27 @@ fun VideoPreviewScreen(
               color = Color.White.copy(alpha = 0.8f),
               fontSize = 13.sp
             )
+          }
+        }
+        // ===== 诊断面板：黑屏时免 adb 直接定位解码链路卡点 =====
+        if (h264Diag.value.isNotEmpty()) {
+          Column(
+            modifier = Modifier
+              .align(Alignment.BottomStart)
+              .padding(6.dp)
+              .background(Color(0xCC000000), RoundedCornerShape(6.dp))
+              .padding(horizontal = 8.dp, vertical = 6.dp)
+          ) {
+            for (line in h264Diag.value) {
+              Text(
+                line,
+                color = Color(0xFF7FE7C4),
+                fontSize = 9.sp,
+                lineHeight = 11.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                maxLines = 1
+              )
+            }
           }
         }
       } else {
