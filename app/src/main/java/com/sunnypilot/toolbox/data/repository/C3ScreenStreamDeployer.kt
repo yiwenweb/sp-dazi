@@ -79,10 +79,16 @@ class C3ScreenStreamDeployer(
     const val TOUCH_PORT = 27184
 
     /** 与 assets 中 payload 逐字节一致的 md5，用作完整性校验。 */
-    private const val EXPECTED_MD5 = "bf0b471d9661a77725936479b934f1ce"
+    private const val EXPECTED_MD5 = "2e81abc3ef03c4b1a45ab0efc5fb2d35"
 
-    /** payload 字节数（122,880 B）。 */
-    private const val EXPECTED_SIZE = 122_880L
+    /**
+     * payload 字节数（768,000 B）。
+     *
+     * v2 起 bin/sde_rotator_stream 换成了自研版（静态链接 aarch64，
+     * 修正了第三方把 dma-buf fd 塞进 m.userptr 的缺陷），
+     * 体积从 18,816 B 增到 655,200 B，tar 随之从 122,880 B 涨到 768,000 B。
+     */
+    private const val EXPECTED_SIZE = 768_000L
   }
 
   /** 部署阶段回调：用于 UI 实时显示进度。 */
@@ -296,11 +302,20 @@ class C3ScreenStreamDeployer(
         val encLog = ssh.executeCommand("tail -20 $BASE_DIR/encoder.log 2>/dev/null || echo '(无日志)'")
           .getOrElse { "" }
         encLog.lines().takeLast(10).filter { it.isNotBlank() }.forEach { emit("  enc| $it") }
+        captureTail.lines().filter { it.isNotBlank() }.forEach { emit("  cap| $it") }
         return Result2.Fail(Stage.VERIFY, "编码进程未监听 $VIDEO_PORT（详见 encoder.log）", log)
       }
       emit("✓ 视频端口 $VIDEO_PORT 已监听")
       if (touchListening) emit("✓ 触控端口 $TOUCH_PORT 已监听")
       else emit("⚠ 触控端口 $TOUCH_PORT 未监听（画面可看，触摸无效）")
+
+      // 打印自研 rotator 实际生效的 buffer 模式与首帧统计，便于确认走的是哪条路径
+      val rotDiag = ssh.executeCommand(
+        "echo '== rotator =='; " +
+          "grep -aE 'fps=|mode=|captured=|QBUF|drm:|ion' $BASE_DIR/capture.log 2>/dev/null | tail -10 || true; " +
+          "echo '== version =='; cat $BASE_DIR/VERSION 2>/dev/null || echo '(无)'"
+      ).getOrElse { "" }
+      rotDiag.lines().filter { it.isNotBlank() }.forEach { emit("  rot| $it") }
 
       // ───────────────────────── ⑥ 完成 ─────────────────────────
       onStage(Stage.DONE, "部署完成")
