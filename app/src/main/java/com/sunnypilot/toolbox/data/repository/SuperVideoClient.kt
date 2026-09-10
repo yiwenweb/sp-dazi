@@ -36,9 +36,13 @@ class SuperVideoClient(
 
   @Volatile private var surface: Surface? = null
 
+  /** Surface 就绪/变化时置位，通知解码线程重建解码器（见 waitForSurface）。 */
+  @Volatile private var surfaceReady = false
+
   /** 页面拿到 Surface 后调用；null 表示 Surface 销毁（解码器暂停重建）。 */
   fun setSurface(s: Surface?) {
     surface = s
+    surfaceReady = s != null
   }
 
   fun start() {
@@ -132,15 +136,18 @@ class SuperVideoClient(
 
     /** 输入缓冲里扫描 Annex-B：把完整 NALU 喂给解码器，返回消费字节数。 */
     fun feedNalus(data: ByteArray, len: Int): Int {
+      if (codec == null && gotSps && gotPps && surfaceReady) {
+        tryConfigureDecoder()   // Surface 迟到时在此补建解码器
+      }
       var lastStart = findStartCode(data, len, 0) ?: return 0
       var consumed = 0
       while (true) {
         val next = findStartCode(data, len, lastStart + 3)
         if (next == null) {
-          // 剩余部分可能是不完整 NALU，不消费
-          if (consumed > 0) return consumed
-          // 流里一直只有一个 NALU 且等不到下一个 —— 保守等更多数据
-          return 0
+          // 尾部 NALU 尚无后继 start code，本轮的边界无法确定；
+          // 返回 consumed 让尾巴留在 carry 里，等下一批数据补齐。
+          // 注意：不能在此"丢弃"尾巴，否则该 NALU（常是 IDR）永不提交。
+          return consumed
         }
         val nalu = data.copyOfRange(lastStart, next)
         handleNalu(nalu)
@@ -162,9 +169,13 @@ class SuperVideoClient(
         7 -> { sps = nalu; gotSps = true }
         8 -> { pps = nalu; gotPps = true }
       }
+      // 解码器未配置时每次收到 SPS/PPS 都重试，直到 Surface 就绪 ——
+      // 否则首帧到达时 Surface 还没 attach，解码器永不建立（黑屏）。
       if (gotSps && gotPps && codec == null) {
         tryConfigureDecoder()
       }
+      // SPS/PPS 已作为 CSD 交给解码器，不再重复喂入数据队列。
+      if (type == 7 || type == 8) return
       codec?.let { feedAndDrain(nalu, type == 5) }
     }
 
@@ -190,40 +201,54 @@ class SuperVideoClient(
     }
 
     private fun stripStartCode(nalu: ByteArray): ByteArray {
-      val off = if (nalu[2].toInt() == 0x01) 3 else 4
+      val off = if (nalu.size > 2 && nalu[2].toInt() == 0x01) 3 else 4
+      if (off >= nalu.size) return ByteArray(0)
       return nalu.copyOfRange(off, nalu.size)
     }
 
     private fun feedAndDrain(nalu: ByteArray, keyframe: Boolean) {
       val c = codec ?: return
       try {
-        val inIdx = c.dequeueInputBuffer(10_000)
+        // 先 drain 再喂：解码器输出队列必须先排空，否则输入缓冲会被占满
+        drainOutput(c)
+        var inIdx = c.dequeueInputBuffer(10_000)
+        if (inIdx < 0) {
+          // 输入缓冲暂时耗尽（解码器落后），排空输出后重试一次，避免丢帧
+          drainOutput(c)
+          inIdx = c.dequeueInputBuffer(10_000)
+        }
         if (inIdx >= 0) {
           val inBuf = c.getInputBuffer(inIdx) ?: return
           inBuf.clear()
-          // MediaCodec 接受带 start code 的 Annex-B
-          inBuf.put(nalu)
+          // 部分设备固件对"带 start code 的 Annex-B"处理不一致，统一去掉
+          // start code 只喂裸 NALU（与 CSD 的 stripStartCode 保持一致）。
+          val payload = stripStartCode(nalu)
+          if (payload.isEmpty()) return
+          inBuf.put(payload)
           val flags = if (keyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-          c.queueInputBuffer(inIdx, 0, nalu.size, System.nanoTime() / 1000, flags)
+          c.queueInputBuffer(inIdx, 0, payload.size, System.nanoTime() / 1000, flags)
         }
-        // 每帧都 drain 输出
-        val info = MediaCodec.BufferInfo()
-        while (true) {
-          val outIdx = c.dequeueOutputBuffer(info, 0)
-          when {
-            outIdx >= 0 -> {
-              c.releaseOutputBuffer(outIdx, true)   // 渲染到 Surface
-              countFrame()
-            }
-            outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-              val f = c.outputFormat
-              onResolution(f.getInteger(MediaFormat.KEY_WIDTH), f.getInteger(MediaFormat.KEY_HEIGHT))
-            }
-            else -> break
-          }
-        }
+        drainOutput(c)
       } catch (e: Exception) {
         Log.w(TAG, "decode error: ${e.message}")
+      }
+    }
+
+    private fun drainOutput(c: MediaCodec) {
+      val info = MediaCodec.BufferInfo()
+      while (true) {
+        val outIdx = c.dequeueOutputBuffer(info, 0)
+        when {
+          outIdx >= 0 -> {
+            c.releaseOutputBuffer(outIdx, true)   // 渲染到 Surface
+            countFrame()
+          }
+          outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+            val f = c.outputFormat
+            onResolution(f.getInteger(MediaFormat.KEY_WIDTH), f.getInteger(MediaFormat.KEY_HEIGHT))
+          }
+          else -> break
+        }
       }
     }
 

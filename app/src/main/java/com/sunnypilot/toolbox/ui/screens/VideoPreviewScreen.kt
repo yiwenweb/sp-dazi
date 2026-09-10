@@ -122,11 +122,12 @@ fun VideoPreviewScreen(
         onResolution = { w, h -> h264W = w; h264H = h },
         onError = { _ -> }
       )
+      // 先公开引用再 start：worker 起来后 TextureView 回调必须能拿到它
+      h264ClientRef.value = c
       textureViewRef.value?.let { tv ->
         if (tv.isAvailable) c.setSurface(Surface(tv.surfaceTexture))
       }
       c.start()
-      h264ClientRef.value = c
     }
     onDispose {
       h264ClientRef.value?.stop()
