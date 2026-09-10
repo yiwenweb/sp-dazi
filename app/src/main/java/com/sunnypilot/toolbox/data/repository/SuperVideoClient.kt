@@ -207,6 +207,13 @@ class SuperVideoClient(
 
   private fun streamLoop(input: InputStream) {
     val decoderController = DecoderController({ surface }, surfaceGeneration, onFps)
+    // 诊断：把收到的字节原样落盘（与 PC 抓包逐字节比对）
+    val dumpOut = if (rawDumpEnabled) {
+      runCatching { java.io.FileOutputStream(rawDumpPath!!, false) }.getOrNull().also {
+        if (it != null) Log.i(TAG, "raw dump -> $rawDumpPath")
+      }
+    } else null
+    var dumpBytes = 0L
     try {
       val buf = ByteArray(256 * 1024)
       val carry = ByteArray(1024 * 1024)
@@ -231,6 +238,10 @@ class SuperVideoClient(
         counters.computeIfAbsent("bytes") { java.util.concurrent.atomic.AtomicLong() }.addAndGet(n.toLong())
         counters.computeIfAbsent("reads") { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
         if (reads == 1) diag("首次收到数据 n=$n")
+        // 原样落盘：与 PC 侧抓包做逐字节比对，判断「App 收到的流」是否被破坏
+        if (dumpOut != null && dumpBytes < 8L * 1024 * 1024) {
+          runCatching { dumpOut.write(buf, 0, n); dumpBytes += n }
+        }
 
         if (carryLen + n > carry.size) {
           // 理论不会发生（一帧最多 ~100KB），防御性丢弃旧数据
@@ -260,6 +271,9 @@ class SuperVideoClient(
       }
     } finally {
       Log.i(TAG, "streamLoop exit")
+      runCatching { dumpOut?.flush() }
+      runCatching { dumpOut?.close() }
+      if (dumpOut != null) Log.i(TAG, "raw dump closed, wrote $dumpBytes bytes")
       decoderController.release()
     }
   }
@@ -355,6 +369,12 @@ class SuperVideoClient(
       when (type) {
         7 -> { sps = nalu; gotSps = true; Log.i(TAG, "got SPS len=${nalu.size}"); diag("收到 SPS len=${nalu.size}") }
         8 -> { pps = nalu; gotPps = true; Log.i(TAG, "got PPS len=${nalu.size}"); diag("收到 PPS len=${nalu.size}") }
+      }
+      // 诊断：把前 60 个 NALU 的 (序号/类型/长度/剥离后长度) 打成一行紧凑序列，
+      // 可直接与 PC 侧抓包解析结果逐项比对，判断切分是否一致。
+      if (naluCount <= 60) {
+        val strippedLen = stripStartCode(nalu).size
+        Log.i(TAG, "SEQ nalu#$naluCount t=$type raw=${nalu.size} strip=$strippedLen")
       }
       // 解码器未配置时每次收到 NALU 都重试，直到 Surface 就绪 ——
       // 否则首帧到达时 Surface 还没 attach，解码器永不建立（黑屏）。
@@ -626,5 +646,22 @@ class SuperVideoClient(
 
   companion object {
     private const val TAG = "SuperVideoH264"
+
+    /**
+     * 诊断开关：把收到的字节原样落到 App 私有目录，用于与 PC 侧抓包做逐字节比对。
+     *
+     * 背景：C3 推的流在 PC 上能被 PyAV 完整解码（126 帧），但真机 / 模拟器上
+     * 四类解码器（hisi/c2/google/default）累计喂入 58MB / 2436 个 NALU 仍 0 输出。
+     * 打开本开关后跑一次，把 filesDir 下的 recv_dump.h264 拉回来用 PyAV 解即可判定
+     * 「App 收到的字节」是否与「PC 抓到的字节」一致。
+     */
+    @Volatile var rawDumpEnabled = false
+    private var rawDumpPath: String? = null
+
+    @JvmStatic
+    fun setRawDump(dir: java.io.File?) {
+      rawDumpPath = dir?.let { java.io.File(it, "recv_dump.h264").absolutePath }
+      rawDumpEnabled = rawDumpPath != null
+    }
   }
 }

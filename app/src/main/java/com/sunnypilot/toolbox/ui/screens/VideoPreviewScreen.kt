@@ -126,6 +126,9 @@ fun VideoPreviewScreen(
 
   DisposableEffect(host, h264Mode) {
     if (h264Mode && !host.isNullOrBlank()) {
+      // 诊断：把收到的原始字节落到 App 私有目录，供 PC 侧逐字节比对
+      // （filesDir/recv_dump.h264，可用 adb pull 取出）
+      SuperVideoClient.setRawDump(context.filesDir)
       val c = SuperVideoClient(
         host = host,
         onFps = { h264Fps = it },
