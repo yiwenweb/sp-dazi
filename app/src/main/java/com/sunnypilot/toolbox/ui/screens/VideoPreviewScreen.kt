@@ -280,14 +280,20 @@ fun VideoPreviewScreen(
     ) {
       if (h264Mode) {
         // ===== H264 硬解模式：TextureView + MediaCodec Surface 渲染 =====
+        // 注意：SurfaceTexture 默认缓冲尺寸为 0x0，若不在 attach 时显式
+        // setDefaultBufferSize(1280, 640)，MediaCodec 会渲染到 0x0 → 全黑。
         AndroidView(
           factory = { ctx ->
             TextureView(ctx).apply {
               surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                  // 关键：按流分辨率设定缓冲，否则解码输出无处可画（黑屏）
+                  st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
                   h264ClientRef.value?.setSurface(Surface(st))
                 }
-                override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+                override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                  st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
+                }
                 override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
                   h264ClientRef.value?.setSurface(null)
                   return true
@@ -450,3 +456,7 @@ private fun sendTouch(
 
 private const val C3_MAX_X = 2159f
 private const val C3_MAX_Y = 1079f
+
+/** C3 super video 硬编码输出的 Negotiated 分辨率（与 supervideo.cc STREAM_WIDTH/HEIGHT 一致） */
+private const val H264_STREAM_WIDTH = 1280
+private const val H264_STREAM_HEIGHT = 640

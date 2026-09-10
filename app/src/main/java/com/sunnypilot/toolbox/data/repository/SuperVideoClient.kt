@@ -39,10 +39,15 @@ class SuperVideoClient(
   /** Surface 就绪/变化时置位，通知解码线程重建解码器（见 waitForSurface）。 */
   @Volatile private var surfaceReady = false
 
+  /** Surface 换代计数：TextureView 重建/旋转时 +1，解码器据此重建。 */
+  @Volatile private var surfaceGeneration = 0
+
   /** 页面拿到 Surface 后调用；null 表示 Surface 销毁（解码器暂停重建）。 */
   fun setSurface(s: Surface?) {
     surface = s
     surfaceReady = s != null
+    if (s != null) surfaceGeneration++
+    Log.i(TAG, "setSurface ready=${s != null} gen=$surfaceGeneration")
   }
 
   fun start() {
@@ -67,7 +72,10 @@ class SuperVideoClient(
         Socket().use { sock ->
           sock.connect(InetSocketAddress(host, port), 3000)
           sock.tcpNoDelay = true
-          sock.soTimeout = 5000
+          // 超时只用于让 read() 有机会检查 running，不代表流断了。
+          // C3 在画面静止时会大幅跳帧，长静默是正常的：绝不能在超时时
+          // 断开重连，否则解码器被反复重建，画面永远出不来（黑屏）。
+          sock.soTimeout = 10000
           Log.d(TAG, "connected to $host:$port")
           onStatus(true)
           try {
@@ -76,9 +84,12 @@ class SuperVideoClient(
             onStatus(false)
           }
         }
+      } catch (e: java.net.SocketTimeoutException) {
+        // 静默期，非错误：继续同一连接读取（streamLoop 内部已处理）
+        Log.d(TAG, "read timeout (idle), keeping connection")
       } catch (e: Exception) {
         if (running.get()) {
-          Log.w(TAG, "stream error: ${e.message}")
+          Log.w(TAG, "stream error: ${e::class.java.simpleName}: ${e.message}")
           onError(e.message ?: "连接失败")
         }
       }
@@ -89,19 +100,30 @@ class SuperVideoClient(
   }
 
   private fun streamLoop(input: InputStream) {
-    val decoderController = DecoderController({ surface }, onFps)
+    val decoderController = DecoderController({ surface }, surfaceGeneration, onFps)
     try {
       val buf = ByteArray(256 * 1024)
       val carry = ByteArray(1024 * 1024)
       var carryLen = 0
+      var totalBytes = 0L
+      var reads = 0
 
       while (running.get()) {
-        val n = input.read(buf)
+        val n = try {
+          input.read(buf)
+        } catch (e: java.net.SocketTimeoutException) {
+          // 静默期：解码器保持存活，继续读同一连接。C3 静止画面会跳帧，
+          // 这不是流断裂 —— 直接退出 loop 会销毁解码器导致黑屏。
+          continue
+        }
         if (n < 0) throw IllegalStateException("stream closed")
         if (n == 0) continue
+        totalBytes += n
+        reads++
 
         if (carryLen + n > carry.size) {
           // 理论不会发生（一帧最多 ~100KB），防御性丢弃旧数据
+          Log.w(TAG, "carry overflow (carryLen=$carryLen n=$n), dropping")
           carryLen = 0
         }
         System.arraycopy(buf, 0, carry, carryLen, n)
@@ -113,8 +135,12 @@ class SuperVideoClient(
           System.arraycopy(carry, consumed, carry, 0, carryLen - consumed)
           carryLen -= consumed
         }
+        if (reads % 50 == 0) {
+          Log.d(TAG, "stream: $totalBytes bytes / $reads reads, carry=$carryLen")
+        }
       }
     } finally {
+      Log.i(TAG, "streamLoop exit")
       decoderController.release()
     }
   }
@@ -123,6 +149,7 @@ class SuperVideoClient(
 
   private inner class DecoderController(
     private val surfaceProvider: () -> Surface?,
+    private val surfaceGenAtCreate: Int,
     private val fpsReport: (Int) -> Unit
   ) {
     private var codec: MediaCodec? = null
@@ -130,13 +157,21 @@ class SuperVideoClient(
     private var gotPps = false
     private var sps: ByteArray? = null
     private var pps: ByteArray? = null
+    private var boundGeneration = -1
+    private var naluCount = 0
+    private var lastLogNalu = 0
 
     private var frameCount = 0
     private var lastFpsTime = System.nanoTime()
 
     /** 输入缓冲里扫描 Annex-B：把完整 NALU 喂给解码器，返回消费字节数。 */
     fun feedNalus(data: ByteArray, len: Int): Int {
-      if (codec == null && gotSps && gotPps && surfaceReady) {
+      // Surface 变化（重建/旋转）时丢弃旧解码器，用新 Surface 重建
+      if (codec != null && boundGeneration != surfaceGeneration) {
+        Log.i(TAG, "surface changed (gen $boundGeneration -> $surfaceGeneration), rebuilding codec")
+        release()
+      }
+      if (codec == null && gotSps && gotPps) {
         tryConfigureDecoder()   // Surface 迟到时在此补建解码器
       }
       var lastStart = findStartCode(data, len, 0) ?: return 0
@@ -165,22 +200,37 @@ class SuperVideoClient(
       val hdrOff = if (nalu[2].toInt() == 0x01) 3 else 4
       if (hdrOff >= nalu.size) return
       val type = (nalu[hdrOff].toInt() and 0x1F)
-      when (type) {
-        7 -> { sps = nalu; gotSps = true }
-        8 -> { pps = nalu; gotPps = true }
+      naluCount++
+      if (naluCount <= 8) {
+        Log.d(TAG, "nalu#$naluCount type=$type len=${nalu.size} hdrOff=$hdrOff")
       }
-      // 解码器未配置时每次收到 SPS/PPS 都重试，直到 Surface 就绪 ——
+      when (type) {
+        7 -> { sps = nalu; gotSps = true; Log.i(TAG, "got SPS len=${nalu.size}") }
+        8 -> { pps = nalu; gotPps = true; Log.i(TAG, "got PPS len=${nalu.size}") }
+      }
+      // 解码器未配置时每次收到 NALU 都重试，直到 Surface 就绪 ——
       // 否则首帧到达时 Surface 还没 attach，解码器永不建立（黑屏）。
       if (gotSps && gotPps && codec == null) {
         tryConfigureDecoder()
       }
       // SPS/PPS 已作为 CSD 交给解码器，不再重复喂入数据队列。
       if (type == 7 || type == 8) return
-      codec?.let { feedAndDrain(nalu, type == 5) }
+      codec?.let { feedAndDrain(nalu, type == 5) } ?: run {
+        if (naluCount <= 8 || naluCount % 200 == 0) {
+          Log.w(TAG, "nalu#$naluCount type=$type dropped: codec null")
+        }
+      }
     }
 
     private fun tryConfigureDecoder() {
-      val s = surfaceProvider() ?: return   // Surface 未就绪，等下一帧再试
+      val s = surfaceProvider() ?: run {
+        // 每 ~200 个 NALU 提示一次，避免刷屏
+        if (naluCount == 0 || naluCount - lastLogNalu > 200) {
+          lastLogNalu = naluCount
+          Log.w(TAG, "codec NOT configured: surface null (naluCount=$naluCount, sps=$gotSps pps=$gotPps)")
+        }
+        return
+      }
       val sp = sps ?: return
       val pp = pps ?: return
       try {
@@ -193,9 +243,10 @@ class SuperVideoClient(
         c.configure(format, s, null, 0)
         c.start()
         codec = c
-        Log.d(TAG, "decoder configured, surface=${s != null}")
+        boundGeneration = surfaceGeneration
+        Log.i(TAG, "decoder configured OK, gen=$surfaceGeneration, spsLen=${stripStartCode(sp).size}, ppsLen=${stripStartCode(pp).size}")
       } catch (e: Exception) {
-        Log.e(TAG, "decoder configure failed: ${e.message}")
+        Log.e(TAG, "decoder configure FAILED: ${e::class.java.simpleName}: ${e.message}", e)
         onError("解码器配置失败: ${e.message}")
       }
     }
@@ -245,8 +296,11 @@ class SuperVideoClient(
           }
           outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
             val f = c.outputFormat
+            Log.i(TAG, "output format changed: ${f.getInteger(MediaFormat.KEY_WIDTH)}x${f.getInteger(MediaFormat.KEY_HEIGHT)}")
             onResolution(f.getInteger(MediaFormat.KEY_WIDTH), f.getInteger(MediaFormat.KEY_HEIGHT))
           }
+          outIdx == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> { /* legacy, ignore */ }
+          outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> break
           else -> break
         }
       }
