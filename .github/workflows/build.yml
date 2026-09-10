@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -53,3 +56,18 @@ jobs:
           name: app-release-apk
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+      # 发布到 Release 标签 latest-build，方便直接下载安装（无需登录 GitHub）
+      - name: Publish to GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-build
+          name: Latest Build
+          body: |
+            自动构建于 ${{ github.sha }}
+            提交：${{ github.event.head_commit.message }}
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+          make_latest: true
