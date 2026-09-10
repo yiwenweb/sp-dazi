@@ -80,7 +80,16 @@ class SuperVideo2Client(
   private val onFps: (Int) -> Unit = { _ -> },
   private val onStatus: (Boolean) -> Unit = { _ -> },
   private val onResolution: (Int, Int) -> Unit = { _, _ -> },
-  private val onDiag: (List<String>) -> Unit = { _ -> }
+  private val onDiag: (List<String>) -> Unit = { _ -> },
+  /**
+   * 连接失败时的远端诊断钩子（由 UI 层注入，内部走 SSH 拉 C3 日志）。
+   * 返回若干行文本，会追加进诊断面板。
+   *
+   * 存在意义：C3 上"端口连不上"最常见的原因是上游抓屏进程
+   * 首帧就失败退出（capture.log 里会出现 `rotator frame error`），
+   * 而在车机屏幕上原本只能看到一个 ECONNREFUSED，必须 SSH 才知道真相。
+   */
+  private val onRemoteLog: suspend (String) -> List<String> = { _ -> emptyList() }
 ) {
 
   // ═══════════════════════════ 公共接口 ═══════════════════════════
@@ -99,6 +108,9 @@ class SuperVideo2Client(
 
   /** 最近一次触摸发送是否成功（UI 可据此提示"触摸未连通"）。 */
   @Volatile var touchConnected: Boolean = false
+
+  /** 远端日志只拉一次，避免重连风暴里反复 SSH。 */
+  private val remoteLogFetched = java.util.concurrent.atomic.AtomicBoolean(false)
     private set
 
   /** 与 C3 的时钟偏移（微秒），由握手阶段算出。仅作诊断展示。 */
@@ -215,7 +227,28 @@ class SuperVideo2Client(
       } catch (e: Exception) {
         if (running.get()) {
           Log.w(TAG, "video error: ${e::class.java.simpleName}: ${e.message}")
-          diag("视频错误 ${e::class.java.simpleName}: ${e.message}")
+          val msg = e.message.orEmpty()
+          val refused = msg.contains("ECONNREFUSED") ||
+            msg.contains("Connection refused") ||
+            msg.contains("ConnectException")
+          diag(
+            if (refused) {
+              // 连不上端口 = 编码器没起来 = 上游 rotator/swscale 已退出
+              "上游未就绪：端口 $videoPort 拒绝连接（编码器未运行）"
+            } else {
+              "视频错误 ${e::class.java.simpleName}: $msg"
+            }
+          )
+          // 首次拒绝连接时，拉一次远端日志，把真正的原因暴露到面板上
+          if (refused && remoteLogFetched.compareAndSet(false, true)) {
+            val lines = try {
+              kotlinx.coroutines.runBlocking { onRemoteLog("refused") }
+            } catch (te: Throwable) {
+              Log.w(TAG, "remote log fetch failed: ${te.message}")
+              emptyList()
+            }
+            lines.forEach { diag("c3| $it") }
+          }
           bump("disconnect")
           publishDiag(true)
         }

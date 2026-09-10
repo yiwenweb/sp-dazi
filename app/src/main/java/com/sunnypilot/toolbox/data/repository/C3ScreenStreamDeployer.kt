@@ -246,19 +246,48 @@ class C3ScreenStreamDeployer(
       ).getOrElse { "" }
       portOut.lines().filter { it.isNotBlank() }.forEach { emit("  $it") }
 
-      val videoListening = portOut.contains("$VIDEO_PORT")
-      val touchListening = portOut.contains("$TOUCH_PORT")
-      val hasEncoder = portOut.contains("v4l_h264_encoder")
-      val hasRotator = portOut.contains("sde_rotator_stream")
+      // 先尝试做一次延迟复检：c3 上遇到的实际情况是
+      // sde_rotator_stream 能成功启动、拿到 scanout framebuffer，
+      // 但在第一帧就被标记 V4L2_BUF_FLAG_ERROR(0x4040) 并 exit(17)。
+      // 因此"刚装完进程在跑"不等于"真的能出货"，必须等一下再看。
+      var portOutNow = portOut
+      if (!portOutNow.contains("sde_rotator_stream") || !portOutNow.contains("$VIDEO_PORT")) {
+        emit("… 等待 8 秒后复检（抓屏进程常在首帧失败后退出）")
+        kotlinx.coroutines.delay(8_000)
+        portOutNow = ssh.executeCommand(
+          "(" +
+            "netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null || true" +
+            ") | grep -E '$VIDEO_PORT|$TOUCH_PORT' || true; " +
+            "echo '---procs---'; " +
+            "pgrep -af 'v4l_h264_encoder|sde_rotator_stream|swscale_xrgb_to_nv12|touch_proxy|weston_tiny_guard' " +
+            "|| echo '(无相关进程)'"
+        ).getOrElse { "" }
+        portOutNow.lines().filter { it.isNotBlank() }.forEach { emit("  复检| $it") }
+      }
+
+      val videoListening = portOutNow.contains("$VIDEO_PORT")
+      val touchListening = portOutNow.contains("$TOUCH_PORT")
+      val hasRotator = portOutNow.contains("sde_rotator_stream")
+
+      // 抓屏与转换日志末尾：无论成败都带上，这是最能说明问题的一段
+      val captureTail = ssh.executeCommand(
+        "echo '== capture.log =='; tail -8 $BASE_DIR/capture.log 2>/dev/null || true; " +
+          "echo '== convert.log =='; tail -5 $BASE_DIR/convert.log 2>/dev/null || true"
+      ).getOrElse { "" }
 
       if (!hasRotator) {
-        // 最关键的一条：sde_rotator_stream 退出通常意味着拿不到 scanout framebuffer，
-        // 这正是技术报告 §2.5 记录的阻塞点在这个方案上的体现。
-        emit("✗ sde_rotator_stream 未在运行 —— 极可能是拿不到 1080x2160 scanout framebuffer")
+        captureTail.lines().filter { it.isNotBlank() }.forEach { emit("  cap| $it") }
+        // 真实原因很可能是首帧 buffer 导入失败（rotator frame error flags=0x4040），
+        // 而不是"拿不到 framebuffer"——后者只会在完全没有 1080x2160 扫描输出时出现。
+        val frameErr = captureTail.contains("rotator frame error")
         return Result2.Fail(
           Stage.VERIFY,
-          "抓屏进程未起来（大概率是 DRM scanout framebuffer 获取失败，见 capture.log）。" +
-            "这属于设备级限制，本方案在当前 C3 上可能不可用。",
+          if (frameErr) {
+            "抓屏进程在首帧失败退出（rotator frame error）。" +
+              "这是 sde_rotator 的 buffer 导入路径问题，不是硬件不可用。"
+          } else {
+            "抓屏进程未起来，详见上方 capture.log。"
+          },
           log
         )
       }
@@ -277,13 +306,7 @@ class C3ScreenStreamDeployer(
       onStage(Stage.DONE, "部署完成")
       emit("✓ 部署完成，可以开始拉流")
 
-      // 追加抓屏/转换日志末尾，便于定位"端口通了但画面黑"的情况
-      val tail = ssh.executeCommand(
-        "for f in capture log convert; do :; done; " +
-          "echo '== capture.log =='; tail -5 $BASE_DIR/capture.log 2>/dev/null; " +
-          "echo '== convert.log =='; tail -5 $BASE_DIR/convert.log 2>/dev/null"
-      ).getOrElse { "" }
-      tail.lines().filter { it.isNotBlank() }.forEach { emit("  $it") }
+      captureTail.lines().filter { it.isNotBlank() }.forEach { emit("  cap| $it") }
 
       return Result2.Ok(log)
     } catch (e: Exception) {

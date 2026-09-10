@@ -118,7 +118,18 @@ fun SuperVideo2Screen(
       onFps = { fps = it },
       onStatus = { sConnected = it },
       onResolution = { w, hh -> streamW = w; streamH = hh },
-      onDiag = { diag = it }
+      onDiag = { diag = it },
+      // 端口拒绝连接时，直接把 C3 的抓屏/编码日志拉到面板上，
+      // 这样不用 SSH 就能看到 `rotator frame error` 之类的真实原因。
+      onRemoteLog = { reason ->
+        val base = C3ScreenStreamDeployer.BASE_DIR
+        val cmd = "echo \"-- 抓屏 --\"; tail -6 $base/capture.log 2>/dev/null || true; " +
+          "echo \"-- 编码 --\"; tail -4 $base/encoder.log 2>/dev/null || true; " +
+          "echo \"-- 进程 --\"; pgrep -af 'sde_rotator_stream|v4l_h264_encoder|swscale_xrgb' " +
+          "2>/dev/null || echo '(上游进程均未运行)'"
+        sshManager.executeCommand(cmd).getOrElse { "拉取远端日志失败：${it.message}" }
+          .lines().filter { it.isNotBlank() }.take(16)
+      }
     )
     c.setFallbackSurfaceProvider {
       val tv = textureViewRef.value
