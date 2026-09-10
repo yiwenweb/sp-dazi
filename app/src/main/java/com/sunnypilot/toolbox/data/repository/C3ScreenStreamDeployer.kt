@@ -79,7 +79,7 @@ class C3ScreenStreamDeployer(
     const val TOUCH_PORT = 27184
 
     /** 与 assets 中 payload 逐字节一致的 md5，用作完整性校验。 */
-    private const val EXPECTED_MD5 = "2e81abc3ef03c4b1a45ab0efc5fb2d35"
+    private const val EXPECTED_MD5 = "016d4eb6cb97c1fe16ff4e8d95375f9b"
 
     /**
      * payload 字节数（768,000 B）。
@@ -283,16 +283,33 @@ class C3ScreenStreamDeployer(
 
       if (!hasRotator) {
         captureTail.lines().filter { it.isNotBlank() }.forEach { emit("  cap| $it") }
+        // capture.log 为空时，真正的失败原因往往在 launcher.log（bash 自己的 exec 报错，
+        // 例如 sudo 被拒、二进制无法执行），它不会被 2>>capture.log 捕获。
+        val launchTail = ssh.executeCommand(
+          "echo '== launcher.log =='; tail -20 $BASE_DIR/launcher.log 2>/dev/null || true; " +
+            "echo '== 二进制属性 =='; " +
+            "ls -la $BASE_DIR/bin/ 2>/dev/null || true; " +
+            "echo '== 试执行 =='; " +
+            "sudo -n $BASE_DIR/bin/sde_rotator_stream 2 --mode=dmabuf 2>&1 | head -12 || true"
+        ).getOrElse { "" }
+        launchTail.lines().filter { it.isNotBlank() }.forEach { emit("  lnc| $it") }
+
         // 真实原因很可能是首帧 buffer 导入失败（rotator frame error flags=0x4040），
         // 而不是"拿不到 framebuffer"——后者只会在完全没有 1080x2160 扫描输出时出现。
         val frameErr = captureTail.contains("rotator frame error")
+        val cantExec = launchTail.contains("Permission denied") ||
+          launchTail.contains("cannot execute") ||
+          launchTail.contains("not found")
         return Result2.Fail(
           Stage.VERIFY,
-          if (frameErr) {
-            "抓屏进程在首帧失败退出（rotator frame error）。" +
-              "这是 sde_rotator 的 buffer 导入路径问题，不是硬件不可用。"
-          } else {
-            "抓屏进程未起来，详见上方 capture.log。"
+          when {
+            cantExec -> "抓屏二进制无法执行（详见上方 launcher.log / 试执行输出）。"
+            frameErr -> {
+              "抓屏进程在首帧失败退出（rotator frame error）。" +
+                "这是 sde_rotator 的 buffer 导入路径问题，不是硬件不可用。"
+            }
+            captureTail.isBlank() -> "抓屏进程未起来，且 capture.log 为空 —— 见上方 launcher.log。"
+            else -> "抓屏进程未起来，详见上方 capture.log。"
           },
           log
         )
