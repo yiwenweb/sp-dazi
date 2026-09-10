@@ -111,7 +111,6 @@ class SuperVideo2Client(
 
   /** 远端日志只拉一次，避免重连风暴里反复 SSH。 */
   private val remoteLogFetched = java.util.concurrent.atomic.AtomicBoolean(false)
-    private set
 
   /** 与 C3 的时钟偏移（微秒），由握手阶段算出。仅作诊断展示。 */
   @Volatile var clockOffsetUs: Long = 0L
