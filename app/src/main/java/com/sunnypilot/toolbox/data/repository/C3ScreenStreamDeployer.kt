@@ -3,7 +3,6 @@ package com.sunnypilot.toolbox.data.repository
 import android.content.Context
 import android.util.Log
 import com.sunnypilot.toolbox.data.SshManager
-import java.io.File
 import java.security.MessageDigest
 
 /**
