@@ -42,6 +42,17 @@ class SuperVideoClient(
   /** Surface 换代计数：TextureView 重建/旋转时 +1，解码器据此重建。 */
   @Volatile private var surfaceGeneration = 0
 
+  /**
+   * 兜底 Surface 提供者：Compose 有两条绑定路径可能都错过（时序竞态），
+   * 设置后 worker 在每次解码器尝试配置时都会回调它拿 Surface。
+   * 由 UI 层传入，直接返回当前 TextureView 的 Surface（可能为 null）。
+   */
+  @Volatile private var fallbackSurfaceProvider: (() -> Surface?)? = null
+
+  fun setFallbackSurfaceProvider(p: () -> Surface?) {
+    fallbackSurfaceProvider = p
+  }
+
   /** 页面拿到 Surface 后调用；null 表示 Surface 销毁（解码器暂停重建）。 */
   fun setSurface(s: Surface?) {
     surface = s
@@ -223,7 +234,16 @@ class SuperVideoClient(
     }
 
     private fun tryConfigureDecoder() {
-      val s = surfaceProvider() ?: run {
+      // 正常路径：UI 已通过 setSurface 送达。兜底路径：直接向 TextureView 取。
+      var s = surfaceProvider()
+      if (s == null) {
+        s = fallbackSurfaceProvider?.invoke()
+        if (s != null) {
+          Log.i(TAG, "surface obtained via fallback provider (setSurface was never delivered)")
+          setSurface(s)
+        }
+      }
+      if (s == null) {
         // 每 ~200 个 NALU 提示一次，避免刷屏
         if (naluCount == 0 || naluCount - lastLogNalu > 200) {
           lastLogNalu = naluCount

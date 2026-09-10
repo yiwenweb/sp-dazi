@@ -112,7 +112,16 @@ fun VideoPreviewScreen(
     onDispose { client?.stop() }
   }
 
-  // H264 客户端生命周期：模式开启即拉流，Surface 由 TextureView 提供
+  // H264 客户端生命周期：模式开启即拉流，Surface 由 TextureView 提供。
+  //
+  // 注意 Compose 的执行顺序：AndroidView 的 factory 可能先于本 DisposableEffect
+  // 运行，也可能后于（取决于重组时机）。因此不能在任何一侧"一次性"绑定 Surface：
+  //   - 若 TextureView 先就绪，onSurfaceTextureAvailable 里 h264ClientRef 还是 null
+  //   - 若 client 先创建，textureViewRef 还是 null
+  // 两条路径都必须能补绑定。这里用一个单调递增的 surfaceGen 状态 + LaunchedEffect
+  // 做收敛，保证任一顺序下 Surface 最终都会送达 client。
+  var surfaceGen by remember { mutableIntStateOf(0) }
+
   DisposableEffect(host, h264Mode) {
     if (h264Mode && !host.isNullOrBlank()) {
       val c = SuperVideoClient(
@@ -122,16 +131,29 @@ fun VideoPreviewScreen(
         onResolution = { w, h -> h264W = w; h264H = h },
         onError = { _ -> }
       )
-      // 先公开引用再 start：worker 起来后 TextureView 回调必须能拿到它
       h264ClientRef.value = c
-      textureViewRef.value?.let { tv ->
-        if (tv.isAvailable) c.setSurface(Surface(tv.surfaceTexture))
+      // 兜底：若两条 Compose 绑定路径都错过，worker 会自己向 TextureView 取 Surface
+      c.setFallbackSurfaceProvider {
+        val tv = textureViewRef.value
+        if (tv != null && tv.isAvailable && tv.surfaceTexture != null) {
+          Surface(tv.surfaceTexture)
+        } else null
       }
       c.start()
     }
     onDispose {
       h264ClientRef.value?.stop()
       h264ClientRef.value = null
+    }
+  }
+
+  // 双向收敛：client 就绪 或 TextureView 就绪/换代 时，补一次 Surface 绑定。
+  // key 同时含 h264Mode 与 surfaceGen，任一变化都会重跑。
+  LaunchedEffect(h264Mode, surfaceGen, h264ClientRef.value) {
+    val c = h264ClientRef.value ?: return@LaunchedEffect
+    val tv = textureViewRef.value ?: return@LaunchedEffect
+    if (h264Mode && tv.isAvailable && tv.surfaceTexture != null) {
+      c.setSurface(Surface(tv.surfaceTexture))
     }
   }
 
@@ -287,12 +309,15 @@ fun VideoPreviewScreen(
             TextureView(ctx).apply {
               surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
-                  // 关键：按流分辨率设定缓冲，否则解码输出无处可画（黑屏）
+                  // 关键：按流分辨率设定缓冲，否则 MediaCodec 输出无处可画（黑屏）
                   st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
                   h264ClientRef.value?.setSurface(Surface(st))
+                  surfaceGen++          // 通知收敛 effect 补绑定
                 }
                 override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
                   st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
+                  h264ClientRef.value?.setSurface(Surface(st))
+                  surfaceGen++
                 }
                 override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
                   h264ClientRef.value?.setSurface(null)
