@@ -78,6 +78,28 @@ class SuperVideoClient(
   @Volatile var activeCodecName: String? = null
     private set
 
+  /**
+   * 判断是否运行在模拟器上（LDPlayer / AVD / Genymotion 等）。
+   *
+   * 放在**外层类**而不是 DecoderController：publishDiag() 要用它（诊断面板显示），
+   * 而 publishDiag() 在外层；内层类可以访问外层成员，反之不行。
+   * 解码器候选排序（buildCodecCandidates）也复用这一份实现。
+   */
+  private fun isEmulator(): Boolean {
+    val fp = android.os.Build.FINGERPRINT ?: ""
+    val model = android.os.Build.MODEL ?: ""
+    val brand = android.os.Build.BRAND ?: ""
+    val product = android.os.Build.PRODUCT ?: ""
+    return fp.startsWith("generic") ||
+      fp.contains("vbox") || fp.contains("test-keys") ||
+      model.contains("Emulator") || model.contains("Android SDK built for") ||
+      model.contains("sdk_gphone") || model.contains("25098PN5AC") ||
+      brand.startsWith("generic") || brand.contains("genymotion") ||
+      product.contains("sdk") || product.contains("vbox") ||
+      product.contains("ldplayer") || product.contains("nox") ||
+      File("/dev/socket/qemud").exists() || File("/dev/qemu_pipe").exists()
+  }
+
   @Volatile private var surface: Surface? = null
 
   /** Surface 就绪/变化时置位，通知解码线程重建解码器（见 waitForSurface）。 */
@@ -459,22 +481,6 @@ class SuperVideoClient(
       }
       // 末尾补一个"交给系统默认"的兜底
       return ordered + listOf(null)
-    }
-
-    /** 判断是否运行在模拟器上（LDPlayer / AVD / Genymotion 等）。 */
-    private fun isEmulator(): Boolean {
-      val fp = android.os.Build.FINGERPRINT ?: ""
-      val model = android.os.Build.MODEL ?: ""
-      val brand = android.os.Build.BRAND ?: ""
-      val product = android.os.Build.PRODUCT ?: ""
-      return fp.startsWith("generic") ||
-        fp.contains("vbox") || fp.contains("test-keys") ||
-        model.contains("Emulator") || model.contains("Android SDK built for") ||
-        model.contains("sdk_gphone") || model.contains("25098PN5AC") ||
-        brand.startsWith("generic") || brand.contains("genymotion") ||
-        product.contains("sdk") || product.contains("vbox") ||
-        product.contains("ldplayer") || product.contains("nox") ||
-        File("/dev/socket/qemud").exists() || File("/dev/qemu_pipe").exists()
     }
 
     private fun stripStartCode(nalu: ByteArray): ByteArray {
