@@ -264,6 +264,16 @@ fun VideoPreviewScreen(
       }
     }
 
+    // ===== 触摸映射用的「源画面尺寸」=====
+    //
+    // 踩坑记录（2026-09-11 真机实测）：imgW/imgH 只在 MJPEG 模式由 onSize 赋值；
+    // H264 模式下 MjpegStreamClient 为 null（onSize 从不触发），imgW/imgH 恒为 0。
+    // 于是 map() 第一行的守卫直接返回 (0,0) —— C3 端日志实测只收到 `x=0 y=0`，
+    // 且因坐标恒等、位移恒为 0，连 move 都不会发出去 → 「视频能看、完全不能控」。
+    // H264 模式必须改用解码器上报的分辨率（onResolution → h264W/h264H）。
+    val effW = if (h264Mode) (if (h264W > 0) h264W else H264_STREAM_WIDTH) else imgW
+    val effH = if (h264Mode) (if (h264H > 0) h264H else H264_STREAM_HEIGHT) else imgH
+
     // ===== 视频画面区（可触摸回控 C3）=====
     Box(
       modifier = Modifier
@@ -271,14 +281,14 @@ fun VideoPreviewScreen(
         .fillMaxWidth()
         .background(Color.Black)
         .onSizeChanged { viewW = it.width; viewH = it.height }
-        .pointerInput(host, imgW, imgH, viewW, viewH) {
+        .pointerInput(host, effW, effH, viewW, viewH) {
           if (host.isNullOrBlank()) return@pointerInput
           // 触摸坐标：容器像素 -> contain 内容区 -> C3 横屏逻辑坐标 0..2159 / 0..1079
           fun map(px: Float, py: Float): Pair<Int, Int> {
-            if (imgW <= 0 || imgH <= 0 || viewW <= 0 || viewH <= 0) return 0 to 0
-            val sc = min(viewW.toFloat() / imgW, viewH.toFloat() / imgH)
-            val dw = imgW * sc
-            val dh = imgH * sc
+            if (effW <= 0 || effH <= 0 || viewW <= 0 || viewH <= 0) return 0 to 0
+            val sc = min(viewW.toFloat() / effW, viewH.toFloat() / effH)
+            val dw = effW * sc
+            val dh = effH * sc
             val dx = (viewW - dw) / 2f
             val dy = (viewH - dh) / 2f
             val fx = ((px - dx) / dw).coerceIn(0f, 1f)
