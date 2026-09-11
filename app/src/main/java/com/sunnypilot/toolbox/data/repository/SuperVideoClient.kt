@@ -28,6 +28,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class SuperVideoClient(
   private val host: String,
   private val port: Int = 8082,
+  /** 流的标称分辨率：用于 configure 解码器。UI 流的实际分辨率由 SPS 决定，这里只影响初始请求。 */
+  private val streamWidth: Int = 1280,
+  private val streamHeight: Int = 640,
   private val onFps: (Int) -> Unit = { _ -> },
   private val onStatus: (Boolean) -> Unit = { _ -> },
   private val onResolution: (Int, Int) -> Unit = { _, _ -> },
@@ -545,7 +548,7 @@ class SuperVideoClient(
         // 跳过已被判定为"假解码器"的候选，避免每轮都重试到死循环
         if (name != null && name in triedCodecNames) continue
         try {
-          val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1280, 640)
+          val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, streamWidth, streamHeight)
           format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 512 * 1024)
           // 去掉 start code，MediaCodec CSD 需要不带 00 00 00 01 的纯 NALU
           format.setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(stripStartCode(sp)))
