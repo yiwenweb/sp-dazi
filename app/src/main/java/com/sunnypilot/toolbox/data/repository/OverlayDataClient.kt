@@ -63,7 +63,6 @@ data class OverlayMsg(
   val lon: Int? = null,        // 纵向控制激活
   val en: Int? = null,         // 整体激活
   val cpu: Float? = null,      // C3 CPU 温度 °C
-  val bat: Int? = null,        // 电量 %
   val mem: Int? = null,        // 内存占用 %
   // ── C3 资源与状态 ──
   val cpuUse: Float? = null,   // CPU 占用 %

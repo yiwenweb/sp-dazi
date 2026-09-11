@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,7 +51,7 @@ import kotlin.math.min
  * 各元素的画法（颜色/宽度/透明度）也照抄了 Qt UI：
  *   车道线  白色，alpha = clamp(prob, 0, 0.7)，半宽 = 0.025 × prob（C3 侧已按此生成多边形）
  *   道路边缘 红色，alpha = 1 - std
- *   行车轨迹 青绿渐变（0/0.5/1 三档，alpha 0.4 → 0），从画面底部向上淡出
+ *   行车轨迹 蓝色光束带（青色填充 + 亮青描边），从画面底部向远处收窄淡出
  *   前车标记 黄色发光三角 + 红色内三角（chevron），尺寸随距离变化
  */
 @Composable
@@ -404,7 +405,7 @@ private fun OverlayLayer(msg: OverlayMsg?, modifier: Modifier = Modifier) {
       }
     }
 
-    // ── 行车轨迹（青绿渐变，从画面底部向上淡出）──
+    // ── 行车轨迹（蓝色光束带：青色半透明填充 + 亮青描边）──
     if (m.track.size >= 3) {
       val path = Path()
       var started = false
@@ -421,17 +422,24 @@ private fun OverlayLayer(msg: OverlayMsg?, modifier: Modifier = Modifier) {
       }
       if (started) {
         path.close()
+        // 填充：近车端稍浓、远端略淡（保持透视纵深感）
         drawPath(
           path,
           Brush.verticalGradient(
             colors = listOf(
-              Color(0xFF0DF77A).copy(alpha = 0.40f),
-              Color(0xFF72FF5C).copy(alpha = 0.35f),
-              Color(0xFF72FF5C).copy(alpha = 0.00f)
+              Color(0xFF06B6D4).copy(alpha = 0.50f),
+              Color(0xFF22D3EE).copy(alpha = 0.38f),
+              Color(0xFF67E8F9).copy(alpha = 0.16f)
             ),
             startY = size.height,
             endY = 0f
           )
+        )
+        // 亮青描边：让光束的侧边收窄处和前端的收口边界清晰可辨
+        drawPath(
+          path,
+          Color(0xFF7DF9FF).copy(alpha = 0.85f),
+          style = Stroke(width = 2f)
         )
       }
     }
@@ -539,11 +547,9 @@ private fun HudLayer(msg: OverlayMsg?, modifier: Modifier = Modifier) {
         .padding(10.dp),
       horizontalAlignment = Alignment.End
     ) {
+      // C3 没有电池（本 fork 的 DeviceState 无 batteryPercent），只显示温度
       m.cpu?.let {
         Text("C3 ${it.toInt()}°C", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
-      }
-      m.bat?.let {
-        Text("电量 $it%", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
       }
     }
 
