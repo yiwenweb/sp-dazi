@@ -9,12 +9,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -175,58 +175,51 @@ fun VideoStreamScreen(
   Column(
     modifier = modifier
       .fillMaxSize()
-      .background(Color(0xFF05080B))
+      .background(
+        Brush.verticalGradient(
+          listOf(Color(0xFFF6F8FC), Color(0xFFE7EDF6))
+        )
+      )
   ) {
-    // ── 顶部状态条 ──
-    Surface(color = Color(0xFF111827), tonalElevation = 0.dp) {
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(46.dp)
-          .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-      ) {
-        StatusDot(
-          ok = videoConnected,
-          text = if (videoConnected) "视频 $fps FPS" else "视频未连接"
-        )
-        StatusDot(
-          ok = dataFresh,
-          text = when {
-            !dataConnected -> "数据未连接"
-            dataFresh -> "叠加数据 ${overlay?.id ?: 0}"
-            else -> "叠加数据等待中"
-          },
-          amberWhenNotOk = true
-        )
-        // C3 资源占用（数据帧里带过来）
-        val cpuTxt = overlay?.let { m ->
-          val c = m.cpuUse ?: m.cpu
-          if (c != null) " · CPU ${c.toInt()}%" else ""
-        } ?: ""
-        Text(
-          "${streamW} × ${streamH}$cpuTxt",
-          color = Color.White.copy(alpha = 0.6f),
-          fontSize = 12.sp
-        )
-        Spacer(Modifier.weight(1f))
-        if (overlay?.cal?.st == 1) {
-          Text("已标定", color = Color(0xFF34D399), fontSize = 12.sp)
-        } else if (overlay != null) {
-          Text("标定中", color = Color(0xFFFBBF24), fontSize = 12.sp)
-        }
-        // C3 服务状态：进入页面自动启动，离开页面自动停止
-        Text(
-          svcState,
-          color = when (svcState) {
-            "已启动" -> Color(0xFF34D399)
-            "启动失败" -> Color(0xFFF87171)
-            else -> Color(0xFFFBBF24)
-          },
-          fontSize = 12.sp
-        )
-      }
+    // ── 顶部状态条：悬浮毛玻璃卡片 ──
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 10.dp, vertical = 9.dp)
+        .shadow(10.dp, RoundedCornerShape(18.dp), clip = false)
+        .clip(RoundedCornerShape(18.dp))
+        .background(Color.White.copy(alpha = 0.86f))
+        .border(1.dp, Color.White, RoundedCornerShape(18.dp))
+        .height(46.dp)
+        .padding(horizontal = 12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      StatusChip(
+        ok = videoConnected,
+        text = if (videoConnected) "视频 $fps FPS" else "视频未连接"
+      )
+      StatusChip(
+        ok = dataFresh,
+        text = when {
+          !dataConnected -> "数据未连接"
+          dataFresh -> "叠加 #${overlay?.id ?: 0}"
+          else -> "等待数据"
+        },
+        warn = true
+      )
+      Text(
+        "${streamW}×${streamH}",
+        color = Color(0xFF94A3B8),
+        fontSize = 11.sp
+      )
+      Spacer(Modifier.weight(1f))
+      // C3 服务状态：进入页面自动启动，离开页面自动停止
+      StatusChip(
+        ok = svcState == "已启动",
+        text = svcState,
+        warn = svcState != "启动失败"
+      )
     }
 
     // ── 画面区：左侧独立控制栏 + 视频/叠加（按钮不与视频内容重叠）──
@@ -234,8 +227,7 @@ fun VideoStreamScreen(
       modifier = Modifier
         .weight(1f)
         .fillMaxWidth()
-        .background(Color(0xFF05080B))
-        .padding(horizontal = 8.dp, vertical = 8.dp)
+        .padding(start = 10.dp, end = 10.dp, bottom = 10.dp)
     ) {
       CtrlRail(
         camMode = camMode,
@@ -291,8 +283,9 @@ fun VideoStreamScreen(
         Box(
           modifier = Modifier
             .size(dw, dh)
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Color(0xFF2A3644), RoundedCornerShape(12.dp))
+            .shadow(12.dp, RoundedCornerShape(18.dp), clip = false)
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(18.dp))
             .background(Color.Black)
         ) {
           // 视频层
@@ -514,11 +507,14 @@ private fun HudLayer(msg: OverlayMsg?, modifier: Modifier = Modifier) {
       }
     }
 
-    // 左上：激活状态
+    // 左上：激活状态（半透明底衬，避免压在画面上看不清）
     Column(
       modifier = Modifier
         .align(Alignment.TopStart)
         .padding(10.dp)
+        .clip(RoundedCornerShape(12.dp))
+        .background(Color(0x7A0B1220))
+        .padding(horizontal = 10.dp, vertical = 7.dp)
     ) {
       val lat = m.lat == 1
       val lon = m.lon == 1
@@ -538,18 +534,30 @@ private fun HudLayer(msg: OverlayMsg?, modifier: Modifier = Modifier) {
         color = Color.White.copy(alpha = 0.8f),
         fontSize = 11.sp
       )
+      Spacer(Modifier.height(2.dp))
+      Text(
+        if (m.cal?.st == 1) "已标定" else "标定中",
+        color = if (m.cal?.st == 1) Color(0xFF6EE7B7) else Color(0xFFFBBF24),
+        fontSize = 10.sp
+      )
     }
 
     // 右上：C3 状态
     Column(
       modifier = Modifier
         .align(Alignment.TopEnd)
-        .padding(10.dp),
+        .padding(10.dp)
+        .clip(RoundedCornerShape(12.dp))
+        .background(Color(0x7A0B1220))
+        .padding(horizontal = 10.dp, vertical = 7.dp),
       horizontalAlignment = Alignment.End
     ) {
       // C3 没有电池（本 fork 的 DeviceState 无 batteryPercent），只显示温度
       m.cpu?.let {
         Text("C3 ${it.toInt()}°C", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
+      }
+      m.cpuUse?.let {
+        Text("CPU ${it.toInt()}%", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
       }
     }
 
@@ -559,7 +567,10 @@ private fun HudLayer(msg: OverlayMsg?, modifier: Modifier = Modifier) {
       Column(
         modifier = Modifier
           .align(Alignment.CenterEnd)
-          .padding(end = 10.dp),
+          .padding(end = 10.dp)
+          .clip(RoundedCornerShape(12.dp))
+          .background(Color(0x7A0B1220))
+          .padding(horizontal = 10.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.End
       ) {
         Text("前车", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
@@ -602,22 +613,30 @@ private fun HudCell(label: String, value: String) {
   }
 }
 
+/** 顶栏状态胶囊：浅色底 + 彩色圆点，比裸圆点更耐看。 */
 @Composable
-private fun StatusDot(ok: Boolean, text: String, amberWhenNotOk: Boolean = false) {
-  val color = if (ok) Color(0xFF34D399) else if (amberWhenNotOk) Color(0xFFFBBF24) else Color(0xFFE24B4A)
-  Row(verticalAlignment = Alignment.CenterVertically) {
-    Box(
-      modifier = Modifier
-        .size(7.dp)
-        .background(color, CircleShape)
-    )
-    Spacer(Modifier.width(6.dp))
-    Text(text, color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp)
+private fun StatusChip(ok: Boolean, text: String, warn: Boolean = false) {
+  val dot = when {
+    ok -> Color(0xFF10B981)
+    warn -> Color(0xFFF59E0B)
+    else -> Color(0xFFEF4444)
+  }
+  Row(
+    modifier = Modifier
+      .clip(RoundedCornerShape(50))
+      .background(dot.copy(alpha = 0.13f))
+      .padding(horizontal = 9.dp, vertical = 5.dp),
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    Box(Modifier.size(6.dp).background(dot, CircleShape))
+    Spacer(Modifier.width(5.dp))
+    Text(text, color = Color(0xFF334155), fontSize = 11.sp, fontWeight = FontWeight.Medium)
   }
 }
 
 /**
- * 视频左侧的独立控制栏。放在 contain 布局留下的空白区，**不与视频内容重叠**。
+ * 视频左侧的独立控制栏（白色毛玻璃卡片）。放在 contain 布局留下的空白区，
+ * **不与视频内容重叠**。
  *
  * 三样东西：
  *   - 摄像头切换（广角 / 普通）：点击后经 :8085 通知 C3 侧 streamfwd 换源 + 换内参
@@ -635,24 +654,31 @@ private fun CtrlRail(
 ) {
   Column(
     modifier = Modifier
-      .width(58.dp)
+      .width(78.dp)
       .fillMaxHeight()
-      .padding(end = 8.dp),
+      .padding(end = 10.dp)
+      .shadow(10.dp, RoundedCornerShape(18.dp), clip = false)
+      .clip(RoundedCornerShape(18.dp))
+      .background(Color.White.copy(alpha = 0.86f))
+      .border(1.dp, Color.White, RoundedCornerShape(18.dp))
+      .padding(horizontal = 9.dp, vertical = 12.dp),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
+    Text("摄像头", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Medium)
+    Spacer(Modifier.height(7.dp))
     CamChip("广角", selected = camMode == "wide", enabled = enabled) { onCam("wide") }
     Spacer(Modifier.height(6.dp))
     CamChip("普通", selected = camMode != "wide", enabled = enabled) { onCam("narrow") }
 
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(16.dp))
 
-    // 录制按钮：录制中显示红色方块（停止），否则红色圆点（开始）
+    // 录制按钮（iOS 相机风）：浅色圆盘 + 红点；录制中红点变红方块
     Box(
       modifier = Modifier
-        .size(44.dp)
+        .size(46.dp)
         .clip(CircleShape)
-        .background(if (recording) Color(0xFF7F1D1D) else Color(0xFF1F2937))
-        .border(1.dp, if (recording) Color(0xFFEF4444) else Color(0xFF374151), CircleShape)
+        .background(if (recording) Color(0xFFFEE2E2) else Color(0xFFF1F5F9))
+        .border(2.dp, if (recording) Color(0xFFEF4444) else Color(0xFFCBD5E1), CircleShape)
         .clickable(enabled = enabled) { onRec() },
       contentAlignment = Alignment.Center
     ) {
@@ -661,27 +687,28 @@ private fun CtrlRail(
       } else {
         Box(
           Modifier
-            .size(16.dp)
+            .size(20.dp)
             .clip(CircleShape)
-            .background(if (enabled) Color(0xFFEF4444) else Color(0xFF6B7280))
+            .background(if (enabled) Color(0xFFEF4444) else Color(0xFFCBD5E1))
         )
       }
     }
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(5.dp))
     Text(
       if (recording) "停止" else "录制",
-      color = Color.White.copy(alpha = 0.75f),
-      fontSize = 10.sp
+      color = if (recording) Color(0xFFEF4444) else Color(0xFF64748B),
+      fontSize = 10.sp,
+      fontWeight = FontWeight.Medium
     )
 
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(14.dp))
 
     note?.let {
       Text(
         it,
-        color = Color.White.copy(alpha = 0.55f),
+        color = Color(0xFF94A3B8),
         fontSize = 9.sp,
-        lineHeight = 11.sp,
+        lineHeight = 12.sp,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth()
       )
@@ -696,16 +723,15 @@ private fun CamChip(label: String, selected: Boolean, enabled: Boolean, onClick:
   Box(
     modifier = Modifier
       .fillMaxWidth()
-      .height(34.dp)
-      .clip(RoundedCornerShape(8.dp))
-      .background(if (selected) Color(0xFF1D4ED8) else Color(0xFF1F2937))
-      .border(1.dp, if (selected) Color(0xFF60A5FA) else Color(0xFF374151), RoundedCornerShape(8.dp))
+      .height(32.dp)
+      .clip(RoundedCornerShape(10.dp))
+      .background(if (selected) Color(0xFF0EA5E9) else Color(0xFFF1F5F9))
       .clickable(enabled = enabled) { onClick() },
     contentAlignment = Alignment.Center
   ) {
     Text(
       label,
-      color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+      color = if (selected) Color.White else Color(0xFF475569),
       fontSize = 11.sp,
       fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
     )
