@@ -5,6 +5,7 @@ import android.view.TextureView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,13 +20,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.sunnypilot.toolbox.data.SshManager
 import com.sunnypilot.toolbox.data.repository.OverlayDataClient
 import com.sunnypilot.toolbox.data.repository.OverlayMsg
+import com.sunnypilot.toolbox.data.repository.StreamCtrlClient
 import com.sunnypilot.toolbox.data.repository.SuperVideoClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlin.math.min
 
 /**
@@ -65,6 +72,46 @@ fun VideoStreamScreen(
   val textureViewRef = remember { mutableStateOf<TextureView?>(null) }
   val videoClientRef = remember { mutableStateOf<SuperVideoClient?>(null) }
   var surfaceGen by remember { mutableIntStateOf(0) }
+
+  // ── C3 侧服务生命周期 / 控制状态 ──
+  var svcState by remember { mutableStateOf("启动中…") }   // 启动中… / 已启动 / 启动失败
+  var camMode by remember { mutableStateOf("wide") }       // 以 C3 回报为准
+  var recording by remember { mutableStateOf(false) }
+  var recNote by remember { mutableStateOf<String?>(null) }
+  // 独立 scope：onDispose 之后 Composable 自身的 scope 已被取消，
+  // 但"离开页面必须停掉 C3 服务"不能因此丢失，所以用不随页面销毁的 scope。
+  val bgScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
+
+  // ── 进入页面：自动让 C3 启动服务（camerad + 模型链 + 转发器）──
+  LaunchedEffect(host) {
+    if (host.isNullOrBlank()) {
+      svcState = "未连接 C3"
+      return@LaunchedEffect
+    }
+    svcState = "启动中…"
+    val r = sshManager.executeCommand("bash /data/local/tmp/c3_stream_start.sh")
+    svcState = if (r.getOrNull()?.contains("OK") == true) "已启动" else "启动失败"
+  }
+
+  // ── 离开页面：立刻停掉 C3 服务，避免继续占用算力 ──
+  DisposableEffect(host) {
+    onDispose {
+      // 正在录制就先落盘，别留下损坏文件
+      runCatching {
+        videoClientRef.value?.let { if (it.isRecording) it.stopRecording() }
+      }
+      if (!host.isNullOrBlank()) {
+        bgScope.launch {
+          runCatching { sshManager.executeCommand("bash /data/local/tmp/c3_stream_stop.sh") }
+        }
+      }
+    }
+  }
+
+  // 摄像头状态以 C3 回报为准（避免乐观更新与实况不一致）
+  LaunchedEffect(overlay?.cam) {
+    overlay?.cam?.takeIf { it.isNotBlank() }?.let { camMode = it }
+  }
 
   // ── 视频客户端 ──
   DisposableEffect(host) {
@@ -152,8 +199,13 @@ fun VideoStreamScreen(
           },
           amberWhenNotOk = true
         )
+        // C3 资源占用（数据帧里带过来）
+        val cpuTxt = overlay?.let { m ->
+          val c = m.cpuUse ?: m.cpu
+          if (c != null) " · CPU ${c.toInt()}%" else ""
+        } ?: ""
         Text(
-          "${streamW} × ${streamH}",
+          "${streamW} × ${streamH}$cpuTxt",
           color = Color.White.copy(alpha = 0.6f),
           fontSize = 12.sp
         )
@@ -163,18 +215,71 @@ fun VideoStreamScreen(
         } else if (overlay != null) {
           Text("标定中", color = Color(0xFFFBBF24), fontSize = 12.sp)
         }
+        // C3 服务状态：进入页面自动启动，离开页面自动停止
+        Text(
+          svcState,
+          color = when (svcState) {
+            "已启动" -> Color(0xFF34D399)
+            "启动失败" -> Color(0xFFF87171)
+            else -> Color(0xFFFBBF24)
+          },
+          fontSize = 12.sp
+        )
       }
     }
 
-    // ── 画面区（视频 + 叠加，同一容器保证对齐）──
-    Box(
+    // ── 画面区：左侧独立控制栏 + 视频/叠加（按钮不与视频内容重叠）──
+    Row(
       modifier = Modifier
         .weight(1f)
         .fillMaxWidth()
         .background(Color(0xFF05080B))
-        .padding(horizontal = 12.dp, vertical = 8.dp),
-      contentAlignment = Alignment.Center
+        .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
+      CtrlRail(
+        camMode = camMode,
+        recording = recording,
+        enabled = !host.isNullOrBlank(),
+        note = recNote,
+        onCam = { m ->
+          if (!host.isNullOrBlank()) {
+            bgScope.launch {
+              val r = StreamCtrlClient.send(host, m)
+              recNote = if (r.isSuccess) ("已切到" + if (m == "wide") "广角" else "普通")
+                        else "切换失败"
+            }
+          }
+        },
+        onRec = {
+          val c = videoClientRef.value
+          when {
+            c == null -> recNote = "视频未连接"
+            c.isRecording -> {
+              val path = c.stopRecording()
+              recording = false
+              recNote = path?.let { "已保存 " + it.substringAfterLast('/') } ?: "停止失败"
+            }
+            else -> {
+              // 注意语义：startRecording 返回**输出文件路径**，null 才是失败
+              val path = c.startRecording(streamW, streamH)
+              if (path != null) {
+                recording = true
+                recNote = "录制中…"
+              } else {
+                recNote = "开始失败（参数集未就绪）"
+              }
+            }
+          }
+        }
+      )
+
+      // 视频 + 叠加（同一容器保证对齐）
+      Box(
+        modifier = Modifier
+          .weight(1f)
+          .fillMaxHeight(),
+        contentAlignment = Alignment.Center
+      ) {
       BoxWithConstraints {
         // contain 布局：保持 1928×1208 比例
         val ratio = STREAM_W.toFloat() / STREAM_H.toFloat()
@@ -239,6 +344,7 @@ fun VideoStreamScreen(
             }
           }
         }
+      }
       }
     }
   }
@@ -501,6 +607,102 @@ private fun StatusDot(ok: Boolean, text: String, amberWhenNotOk: Boolean = false
     )
     Spacer(Modifier.width(6.dp))
     Text(text, color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp)
+  }
+}
+
+/**
+ * 视频左侧的独立控制栏。放在 contain 布局留下的空白区，**不与视频内容重叠**。
+ *
+ * 三样东西：
+ *   - 摄像头切换（广角 / 普通）：点击后经 :8085 通知 C3 侧 streamfwd 换源 + 换内参
+ *   - 录制开关（圆形按钮）：复用 SuperVideoClient 的 H264 直存 MP4（零重编码、零画质损失）
+ *   - 状态提示：切换结果 / 保存文件名
+ */
+@Composable
+private fun CtrlRail(
+  camMode: String,
+  recording: Boolean,
+  enabled: Boolean,
+  note: String?,
+  onCam: (String) -> Unit,
+  onRec: () -> Unit
+) {
+  Column(
+    modifier = Modifier
+      .width(58.dp)
+      .fillMaxHeight()
+      .padding(end = 8.dp),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    CamChip("广角", selected = camMode == "wide", enabled = enabled) { onCam("wide") }
+    Spacer(Modifier.height(6.dp))
+    CamChip("普通", selected = camMode != "wide", enabled = enabled) { onCam("narrow") }
+
+    Spacer(Modifier.height(14.dp))
+
+    // 录制按钮：录制中显示红色方块（停止），否则红色圆点（开始）
+    Box(
+      modifier = Modifier
+        .size(44.dp)
+        .clip(CircleShape)
+        .background(if (recording) Color(0xFF7F1D1D) else Color(0xFF1F2937))
+        .border(1.dp, if (recording) Color(0xFFEF4444) else Color(0xFF374151), CircleShape)
+        .clickable(enabled = enabled) { onRec() },
+      contentAlignment = Alignment.Center
+    ) {
+      if (recording) {
+        Box(Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFFEF4444)))
+      } else {
+        Box(
+          Modifier
+            .size(16.dp)
+            .clip(CircleShape)
+            .background(if (enabled) Color(0xFFEF4444) else Color(0xFF6B7280))
+        )
+      }
+    }
+    Spacer(Modifier.height(4.dp))
+    Text(
+      if (recording) "停止" else "录制",
+      color = Color.White.copy(alpha = 0.75f),
+      fontSize = 10.sp
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    note?.let {
+      Text(
+        it,
+        color = Color.White.copy(alpha = 0.55f),
+        fontSize = 9.sp,
+        lineHeight = 11.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth()
+      )
+    }
+
+    Spacer(Modifier.weight(1f))
+  }
+}
+
+@Composable
+private fun CamChip(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .height(34.dp)
+      .clip(RoundedCornerShape(8.dp))
+      .background(if (selected) Color(0xFF1D4ED8) else Color(0xFF1F2937))
+      .border(1.dp, if (selected) Color(0xFF60A5FA) else Color(0xFF374151), RoundedCornerShape(8.dp))
+      .clickable(enabled = enabled) { onClick() },
+    contentAlignment = Alignment.Center
+  ) {
+    Text(
+      label,
+      color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+      fontSize = 11.sp,
+      fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+    )
   }
 }
 

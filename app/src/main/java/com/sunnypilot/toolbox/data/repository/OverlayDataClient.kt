@@ -65,6 +65,15 @@ data class OverlayMsg(
   val cpu: Float? = null,      // C3 CPU 温度 °C
   val bat: Int? = null,        // 电量 %
   val mem: Int? = null,        // 内存占用 %
+  // ── C3 资源与状态 ──
+  val cpuUse: Float? = null,   // CPU 占用 %
+  val gpuUse: Float? = null,   // GPU 占用 %
+  val power: Float? = null,    // 整机功耗 W
+  val ign: Int? = null,        // 点火信号（0/1）
+  val procRun: Int? = null,    // 运行中的进程数
+  val procAll: Int? = null,    // 进程总数
+  /** 当前摄像头：`"wide"`（广角）| `"narrow"`（普通/长焦） */
+  val cam: String? = null,
   val cal: OverlayCal? = null
 )
 
