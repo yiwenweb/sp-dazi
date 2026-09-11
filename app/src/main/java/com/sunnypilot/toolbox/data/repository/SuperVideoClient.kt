@@ -147,6 +147,43 @@ class SuperVideoClient(
     worker = null
   }
 
+  // ---------------- H264 直存录制（零重编码） ----------------
+
+  /** 录制器由 UI 层注入（需要 Context 建 MediaMuxer）；为 null 表示未启用录制。 */
+  @Volatile var recorder: H264StreamRecorder? = null
+
+  /** 当前会话的解码控制器（由 runLoop 创建）；录制要向它取已缓存的 SPS/PPS。 */
+  @Volatile private var decoderRef: DecoderController? = null
+
+  /**
+   * 开始录制（把收到的 H.264 码流直接封装成 MP4，不做二次编码）。
+   *
+   * 关键点：参数集从解码器**已缓存**的 sps/pps 灌入。录制通常在流中途开始，
+   * 那时 C3 早已不再重发 SPS/PPS，只有缓存里有。
+   *
+   * @return 输出文件路径；若参数集还没到（刚连上、SPS 未收齐）返回 null。
+   */
+  fun startRecording(width: Int, height: Int): String? {
+    val rec = recorder ?: return null
+    val csd = decoderRef?.currentCsd() ?: run {
+      diag("录制失败：SPS/PPS 尚未到达")
+      return null
+    }
+    return try {
+      rec.setCsd(csd.first, csd.second)
+      rec.start(width, height)
+    } catch (e: Exception) {
+      Log.w(TAG, "startRecording failed: ${e.message}")
+      null
+    }
+  }
+
+  /** 停止录制，返回 MP4 路径；若一个关键帧都没等到（未写入任何样本）返回 null。 */
+  fun stopRecording(): String? = recorder?.stop()
+
+  /** 是否正在录制。 */
+  val isRecording: Boolean get() = recorder?.isRecording == true
+
   // ---------------- 网络循环 ----------------
 
   /** 所有候选解码器均被判定为无输出时抛出，用于打断当前连接并触发重连。 */
@@ -228,6 +265,7 @@ class SuperVideoClient(
     codecBlacklist.clear()
     sessionEpoch++
     val decoderController = DecoderController({ surface }, surfaceGeneration, onFps)
+    decoderRef = decoderController
     // 诊断：把收到的字节原样落盘（与 PC 抓包逐字节比对）
     val dumpOut = if (rawDumpEnabled) {
       runCatching { java.io.FileOutputStream(rawDumpPath!!, false) }.getOrNull().also {
@@ -412,6 +450,17 @@ class SuperVideoClient(
         7 -> { sps = nalu; gotSps = true; Log.i(TAG, "got SPS len=${nalu.size}"); diag("收到 SPS len=${nalu.size}") }
         8 -> { pps = nalu; gotPps = true; Log.i(TAG, "got PPS len=${nalu.size}"); diag("收到 PPS len=${nalu.size}") }
       }
+      // H264 直存录制：参数集随手更新（流中途开始录制时靠 startRecording 灌缓存那份），
+      // 片数据（type 1 非 IDR / 5 IDR）原样写进 MP4 —— 不做任何重编码。
+      recorder?.let { rec ->
+        when (type) {
+          7 -> rec.setCsd(nalu, null)
+          8 -> rec.setCsd(null, nalu)
+        }
+        if (type == 1 || type == 5) {
+          rec.onNalu(nalu, type, System.nanoTime() / 1000L)
+        }
+      }
       // 诊断：把前 60 个 NALU 的 (序号/类型/长度/剥离后长度) 打成一行紧凑序列，
       // 可直接与 PC 侧抓包解析结果逐项比对，判断切分是否一致。
       if (naluCount <= 60) {
@@ -575,6 +624,16 @@ class SuperVideoClient(
       // 末尾补一个"交给系统默认"的兜底 —— 只有在具名候选全部失败时才会用到。
       // 注意：这个兜底是**非确定性**的，千万不要用它来做解码器行为的判据。
       return preferred + rest + listOf(null)
+    }
+
+    /**
+     * 暴露已缓存的参数集（Annex-B，含 start code），供 MP4 录制建立 csd-0/csd-1。
+     * 未收齐时返回 null。
+     */
+    fun currentCsd(): Pair<ByteArray, ByteArray>? {
+      val s = sps ?: return null
+      val p = pps ?: return null
+      return s to p
     }
 
     private fun stripStartCode(nalu: ByteArray): ByteArray {

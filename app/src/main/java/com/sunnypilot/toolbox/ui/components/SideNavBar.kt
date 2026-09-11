@@ -30,7 +30,6 @@ enum class NavItem(val title: String, val icon: ImageVector, val finished: Boole
     Data("数据中心", Icons.Default.BarChart, true),
     Recorder("记录仪预览", Icons.Default.VideoLibrary, true),
     Video("视频预览", Icons.Default.Videocam, true),
-    Video2("超级视频2", Icons.Default.CastConnected, true),
     Files("文件", Icons.Default.Folder, true),
     Calc("智能计算", Icons.Default.Calculate, true),
     Tune("横向调参", Icons.Default.Tune, true),

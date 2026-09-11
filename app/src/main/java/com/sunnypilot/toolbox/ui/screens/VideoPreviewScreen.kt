@@ -9,6 +9,7 @@ import android.view.Surface
 import android.view.TextureView
 import android.widget.ImageView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -23,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -33,10 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.sunnypilot.toolbox.data.SshManager
+import com.sunnypilot.toolbox.data.repository.H264StreamRecorder
 import com.sunnypilot.toolbox.data.repository.MjpegRecorder
 import com.sunnypilot.toolbox.data.repository.MjpegStreamClient
 import com.sunnypilot.toolbox.data.repository.SuperVideoClient
-import com.sunnypilot.toolbox.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.net.HttpURLConnection
@@ -46,14 +48,16 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * 视频预览页（原「超级视频」迁移至此，替换旧的 H264 摄像头预览）。
+ * 视频预览页（C3 屏幕投流 + 反向触摸控制 + 录制）。
  *
- *  - 顶部横条：录制视频按钮 + 实时帧率 + 分辨率 + 连接状态 + 流模式切换
- *  - 下方：两种模式
- *      - MJPEG（默认）：拉 C3 :8081 MJPEG UI 画面（8fps，PIL 软编码），支持录制
- *      - H264 硬解：拉 C3 :8082 msm_vidc 硬编码 H.264（30fps，零 CPU 编码开销），
- *        MediaCodec 硬解渲染到 TextureView；触摸回控两种模式一致（:8081/input）
- *  - 触摸按 contain 映射回 C3（0..2159 / 0..1079）
+ *  - 顶部横条：录制按钮 + 流模式切换 + 帧率 + 分辨率 + 连接状态
+ *  - 画面区：**默认走 H264 硬解**（30fps，msm_vidc 硬编 → MediaCodec 硬解，
+ *    零编码开销）；带圆角边框、四周留边居中，保持流的宽高比不变形
+ *  - 触摸回控：两种模式一致，按 contain 映射回 C3 横屏逻辑坐标（0..2159 / 0..1079）
+ *  - 录制：
+ *      - H264 模式：[H264StreamRecorder] 把收到的 Annex-B 码流**直接封装成 MP4**
+ *        （不做二次编码，零画质损失、零额外耗电）
+ *      - MJPEG 模式：[MjpegRecorder] 把 JPEG 帧重新硬编成 H.264 → MP4
  */
 @Composable
 fun VideoPreviewScreen(
@@ -74,19 +78,18 @@ fun VideoPreviewScreen(
   var viewW by remember { mutableIntStateOf(0) }
   var viewH by remember { mutableIntStateOf(0) }
 
-  // H264 硬解模式状态
-  var h264Mode by remember { mutableStateOf(false) }
+  // 默认直接进 H264 硬解模式（用户主用路径）
+  var h264Mode by remember { mutableStateOf(true) }
   var h264Connected by remember { mutableStateOf(false) }
   var h264Fps by remember { mutableIntStateOf(0) }
   var h264W by remember { mutableIntStateOf(0) }
   var h264H by remember { mutableIntStateOf(0) }
   val h264ClientRef = remember { mutableStateOf<SuperVideoClient?>(null) }
   val textureViewRef = remember { mutableStateOf<TextureView?>(null) }
-  // 诊断信息：直接在画面上显示解码链路状态，免 adb 也能定位黑屏原因
-  val h264Diag = remember { mutableStateOf<List<String>>(emptyList()) }
 
   val imageViewRef = remember { mutableStateOf<ImageView?>(null) }
   val recorder = remember { MjpegRecorder(context) }
+  val h264Recorder = remember { H264StreamRecorder(context) }
 
   // 拉流客户端：一次解码，同时供显示、帧率统计、录制（仅 MJPEG 模式）
   val client = remember(host, h264Mode) {
@@ -126,16 +129,14 @@ fun VideoPreviewScreen(
 
   DisposableEffect(host, h264Mode) {
     if (h264Mode && !host.isNullOrBlank()) {
-      // 诊断：把收到的原始字节落到 App 私有目录，供 PC 侧逐字节比对
-      // （filesDir/recv_dump.h264，可用 adb pull 取出）
-      SuperVideoClient.setRawDump(context.filesDir)
       val c = SuperVideoClient(
         host = host,
         onFps = { h264Fps = it },
         onStatus = { h264Connected = it },
-        onResolution = { w, h -> h264W = w; h264H = h },
-        onDiag = { h264Diag.value = it }
+        onResolution = { w, h -> h264W = w; h264H = h }
       )
+      // 挂上直存录制器：录制时给 client 用，不录制时它只是 idle
+      c.recorder = h264Recorder
       h264ClientRef.value = c
       // 兜底：若两条 Compose 绑定路径都错过，worker 会自己向 TextureView 取 Surface
       c.setFallbackSurfaceProvider {
@@ -171,10 +172,20 @@ fun VideoPreviewScreen(
     }
   }
 
+  // 触摸映射用的「源画面尺寸」：
+  // imgW/imgH 只在 MJPEG 模式由 onSize 赋值；H264 模式下 MjpegStreamClient 为 null，
+  // 若沿用 imgW/imgH 会恒为 0 → map() 直接返回 (0,0) → 所有触摸都注入到 C3 左上角
+  //（真机实测：C3 端只收到 x=0 y=0）。因此 H264 模式必须用解码器上报的分辨率；
+  // 两种模式都做兜底，保证宽高比与映射永不为 0。
+  val effW = if (h264Mode) (if (h264W > 0) h264W else H264_STREAM_WIDTH)
+             else (if (imgW > 0) imgW else H264_STREAM_WIDTH)
+  val effH = if (h264Mode) (if (h264H > 0) h264H else H264_STREAM_HEIGHT)
+             else (if (imgH > 0) imgH else H264_STREAM_HEIGHT)
+
   Column(
     modifier = modifier
       .fillMaxSize()
-      .background(Color(0xFF0B0F14))
+      .background(Color(0xFF05080B))
   ) {
     // ===== 顶部横条 =====
     Surface(color = Color(0xFF111827), tonalElevation = 0.dp) {
@@ -186,29 +197,40 @@ fun VideoPreviewScreen(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        // 录制视频按钮（仅 MJPEG 模式支持录制）
-        if (!h264Mode) {
-          RecordButton(
-            recording = recording,
-            seconds = recordSecs,
-            onClick = {
-              if (!recording) {
+        // 录制按钮（两种模式都支持，底层实现不同）
+        RecordButton(
+          recording = recording,
+          seconds = recordSecs,
+          enabled = if (h264Mode) h264Connected else connected,
+          onClick = {
+            if (!recording) {
+              if (h264Mode) {
+                // H264：把收到的码流直接封成 MP4（等首个 IDR 才开始写）
+                val w = if (h264W > 0) h264W else H264_STREAM_WIDTH
+                val h = if (h264H > 0) h264H else H264_STREAM_HEIGHT
+                val p = h264ClientRef.value?.startRecording(w, h)
+                if (p != null) {
+                  recording = true
+                } else {
+                  toast(context, "录制启动失败：参数集未就绪，稍候一两秒再试")
+                }
+              } else {
                 if (imgW > 0 && imgH > 0) {
                   runCatching { recorder.start(imgW, imgH) }
                     .onSuccess { recording = true }
-                    .onFailure { android.widget.Toast.makeText(context, "录制启动失败: ${it.message}", android.widget.Toast.LENGTH_SHORT).show() }
+                    .onFailure { toast(context, "录制启动失败: ${it.message}") }
                 } else {
-                  android.widget.Toast.makeText(context, "画面尚未就绪，稍候再录", android.widget.Toast.LENGTH_SHORT).show()
+                  toast(context, "画面尚未就绪，稍候再录")
                 }
-              } else {
-                val path = recorder.stop()
-                recording = false
-                val msg = if (path != null) "视频已保存：$path" else "录制失败"
-                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
               }
+            } else {
+              val saved = if (h264Mode) h264ClientRef.value?.stopRecording() else recorder.stop()
+              recording = false
+              if (saved != null) toast(context, "视频已保存：$saved")
+              else toast(context, "录制失败：未等到关键帧，未生成文件")
             }
-          )
-        }
+          }
+        )
 
         Divider(
           modifier = Modifier
@@ -217,12 +239,12 @@ fun VideoPreviewScreen(
           color = Color.White.copy(alpha = 0.12f)
         )
 
-        // 流模式切换：MJPEG（8fps 可录制）/ H264 硬解（30fps）
+        // 流模式切换：H264 硬解（默认）/ MJPEG
         ModeChip(
           h264Mode = h264Mode,
           onClick = {
             if (recording) {
-              recorder.stop()
+              if (h264Mode) h264ClientRef.value?.stopRecording() else recorder.stop()
               recording = false
             }
             h264Mode = !h264Mode
@@ -239,14 +261,14 @@ fun VideoPreviewScreen(
         InfoChip(
           icon = Icons.Default.HighQuality,
           label = "分辨率",
-          value = if (h264Mode) (if (h264W > 0) "$h264W × $h264H" else "1280 × 640") else (if (imgW > 0) "$imgW × $imgH" else "—")
+          value = "$effW × $effH"
         )
 
         Spacer(modifier = Modifier.weight(1f))
 
         // 连接状态
         val effConnected = if (h264Mode) h264Connected else connected
-        val dotColor = if (effConnected) Green500 else Amber500
+        val dotColor = if (effConnected) Color(0xFF34D399) else Color(0xFFFBBF24)
         val statusText = when {
           host.isNullOrBlank() -> "未连接 C3"
           effConnected -> "已连接 $host"
@@ -264,147 +286,126 @@ fun VideoPreviewScreen(
       }
     }
 
-    // ===== 触摸映射用的「源画面尺寸」=====
-    //
-    // 踩坑记录（2026-09-11 真机实测）：imgW/imgH 只在 MJPEG 模式由 onSize 赋值；
-    // H264 模式下 MjpegStreamClient 为 null（onSize 从不触发），imgW/imgH 恒为 0。
-    // 于是 map() 第一行的守卫直接返回 (0,0) —— C3 端日志实测只收到 `x=0 y=0`，
-    // 且因坐标恒等、位移恒为 0，连 move 都不会发出去 → 「视频能看、完全不能控」。
-    // H264 模式必须改用解码器上报的分辨率（onResolution → h264W/h264H）。
-    val effW = if (h264Mode) (if (h264W > 0) h264W else H264_STREAM_WIDTH) else imgW
-    val effH = if (h264Mode) (if (h264H > 0) h264H else H264_STREAM_HEIGHT) else imgH
-
-    // ===== 视频画面区（可触摸回控 C3）=====
+    // ===== 画面区：留边 + 圆角边框 + 保持流宽高比，且可触摸回控 C3 =====
     Box(
       modifier = Modifier
         .weight(1f)
         .fillMaxWidth()
-        .background(Color.Black)
-        .onSizeChanged { viewW = it.width; viewH = it.height }
-        .pointerInput(host, effW, effH, viewW, viewH) {
-          if (host.isNullOrBlank()) return@pointerInput
-          // 触摸坐标：容器像素 -> contain 内容区 -> C3 横屏逻辑坐标 0..2159 / 0..1079
-          fun map(px: Float, py: Float): Pair<Int, Int> {
-            if (effW <= 0 || effH <= 0 || viewW <= 0 || viewH <= 0) return 0 to 0
-            val sc = min(viewW.toFloat() / effW, viewH.toFloat() / effH)
-            val dw = effW * sc
-            val dh = effH * sc
-            val dx = (viewW - dw) / 2f
-            val dy = (viewH - dh) / 2f
-            val fx = ((px - dx) / dw).coerceIn(0f, 1f)
-            val fy = ((py - dy) / dh).coerceIn(0f, 1f)
-            return (fx * C3_MAX_X).roundToInt() to (fy * C3_MAX_Y).roundToInt()
-          }
-          awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false)
-            var last = map(down.position.x, down.position.y)
-            sendTouch(host, last.first, last.second, "down", scope)
-            while (true) {
-              val event = awaitPointerEvent(PointerEventPass.Main)
-              val change = event.changes.firstOrNull() ?: break
-              if (change.changedToUpIgnoreConsumed()) {
-                sendTouch(host, 0, 0, "up", scope)
-                break
-              }
-              val p = map(change.position.x, change.position.y)
-              if (abs(p.first - last.first) + abs(p.second - last.second) >= 2) {
-                sendTouch(host, p.first, p.second, "move", scope)
-                last = p
-              }
-            }
-          }
-        }
+        .background(Color(0xFF05080B))
+        .padding(horizontal = 20.dp, vertical = 10.dp),
+      contentAlignment = Alignment.Center
     ) {
-      if (h264Mode) {
-        // ===== H264 硬解模式：TextureView + MediaCodec Surface 渲染 =====
-        // 注意：SurfaceTexture 默认缓冲尺寸为 0x0，若不在 attach 时显式
-        // setDefaultBufferSize(1280, 640)，MediaCodec 会渲染到 0x0 → 全黑。
-        AndroidView(
-          factory = { ctx ->
-            TextureView(ctx).apply {
-              surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
-                  // 关键：按流分辨率设定缓冲，否则 MediaCodec 输出无处可画（黑屏）
-                  st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
-                  h264ClientRef.value?.setSurface(Surface(st))
-                  surfaceGen++          // 通知收敛 effect 补绑定
-                }
-                override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
-                  st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
-                  h264ClientRef.value?.setSurface(Surface(st))
-                  surfaceGen++
-                }
-                override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
-                  h264ClientRef.value?.setSurface(null)
-                  return true
-                }
-                override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
-              }
-              textureViewRef.value = this
+      Box(
+        modifier = Modifier
+          .fillMaxHeight()
+          .aspectRatio(effW.toFloat() / effH.toFloat())
+          .clip(RoundedCornerShape(12.dp))
+          .border(2.dp, Color(0xFF2A3644), RoundedCornerShape(12.dp))
+          .background(Color.Black)
+          .onSizeChanged { viewW = it.width; viewH = it.height }
+          .pointerInput(host, effW, effH, viewW, viewH) {
+            if (host.isNullOrBlank()) return@pointerInput
+            // 触摸坐标：容器像素 -> contain 内容区 -> C3 横屏逻辑坐标 0..2159 / 0..1079
+            fun map(px: Float, py: Float): Pair<Int, Int> {
+              if (effW <= 0 || effH <= 0 || viewW <= 0 || viewH <= 0) return 0 to 0
+              val sc = min(viewW.toFloat() / effW, viewH.toFloat() / effH)
+              val dw = effW * sc
+              val dh = effH * sc
+              val dx = (viewW - dw) / 2f
+              val dy = (viewH - dh) / 2f
+              val fx = ((px - dx) / dw).coerceIn(0f, 1f)
+              val fy = ((py - dy) / dh).coerceIn(0f, 1f)
+              return (fx * C3_MAX_X).roundToInt() to (fy * C3_MAX_Y).roundToInt()
             }
-          },
-          modifier = Modifier.fillMaxSize()
-        )
-        if (!h264Connected) {
-          Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-          ) {
-            CircularProgressIndicator(color = Teal500, strokeWidth = 2.dp, modifier = Modifier.size(34.dp))
-            Spacer(Modifier.height(10.dp))
-            Text(
-              if (host.isNullOrBlank()) "未连接到 C3，请先在连接中心建立连接"
-              else "正在连接 C3 硬编码流（:8082），请确认 C3 视觉页已开启 Super Video…",
-              color = Color.White.copy(alpha = 0.8f),
-              fontSize = 13.sp
-            )
+            awaitEachGesture {
+              val down = awaitFirstDown(requireUnconsumed = false)
+              var last = map(down.position.x, down.position.y)
+              sendTouch(host, last.first, last.second, "down", scope)
+              while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Main)
+                val change = event.changes.firstOrNull() ?: break
+                if (change.changedToUpIgnoreConsumed()) {
+                  sendTouch(host, 0, 0, "up", scope)
+                  break
+                }
+                val p = map(change.position.x, change.position.y)
+                if (abs(p.first - last.first) + abs(p.second - last.second) >= 2) {
+                  sendTouch(host, p.first, p.second, "move", scope)
+                  last = p
+                }
+              }
+            }
           }
-        }
-        // ===== 诊断面板：黑屏时免 adb 直接定位解码链路卡点 =====
-        if (h264Diag.value.isNotEmpty()) {
-          Column(
-            modifier = Modifier
-              .align(Alignment.BottomStart)
-              .padding(6.dp)
-              .background(Color(0xCC000000), RoundedCornerShape(6.dp))
-              .padding(horizontal = 8.dp, vertical = 6.dp)
-          ) {
-            for (line in h264Diag.value) {
+      ) {
+        if (h264Mode) {
+          // ===== H264 硬解模式：TextureView + MediaCodec Surface 渲染 =====
+          // 注意：SurfaceTexture 默认缓冲尺寸为 0x0，若不在 attach 时显式
+          // setDefaultBufferSize(1280, 640)，MediaCodec 会渲染到 0x0 → 全黑。
+          AndroidView(
+            factory = { ctx ->
+              TextureView(ctx).apply {
+                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                  override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                    st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
+                    h264ClientRef.value?.setSurface(Surface(st))
+                    surfaceGen++          // 通知收敛 effect 补绑定
+                  }
+                  override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                    st.setDefaultBufferSize(H264_STREAM_WIDTH, H264_STREAM_HEIGHT)
+                    h264ClientRef.value?.setSurface(Surface(st))
+                    surfaceGen++
+                  }
+                  override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
+                    h264ClientRef.value?.setSurface(null)
+                    return true
+                  }
+                  override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+                }
+                textureViewRef.value = this
+              }
+            },
+            modifier = Modifier.fillMaxSize()
+          )
+          if (!h264Connected) {
+            Column(
+              modifier = Modifier.align(Alignment.Center),
+              horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+              CircularProgressIndicator(color = Color(0xFF14B8A6), strokeWidth = 2.dp, modifier = Modifier.size(34.dp))
+              Spacer(Modifier.height(10.dp))
               Text(
-                line,
-                color = Color(0xFF7FE7C4),
-                fontSize = 9.sp,
-                lineHeight = 11.sp,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                maxLines = 1
+                if (host.isNullOrBlank()) "未连接到 C3，请先在连接中心建立连接"
+                else "正在连接 C3 硬编码流（:8082）…",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 13.sp
               )
             }
           }
-        }
-      } else {
-        // ===== MJPEG 模式：ImageView 逐帧显示 =====
-        AndroidView(
-          factory = { ctx ->
-            ImageView(ctx).apply {
-              scaleType = ImageView.ScaleType.FIT_CENTER
-              setBackgroundColor(android.graphics.Color.BLACK)
-              imageViewRef.value = this
+        } else {
+          // ===== MJPEG 模式：ImageView 逐帧显示 =====
+          AndroidView(
+            factory = { ctx ->
+              ImageView(ctx).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setBackgroundColor(android.graphics.Color.BLACK)
+                imageViewRef.value = this
+              }
+            },
+            modifier = Modifier.fillMaxSize()
+          )
+          if (!connected || imgW == 0) {
+            Column(
+              modifier = Modifier.align(Alignment.Center),
+              horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+              CircularProgressIndicator(color = Color(0xFF14B8A6), strokeWidth = 2.dp, modifier = Modifier.size(34.dp))
+              Spacer(Modifier.height(10.dp))
+              Text(
+                if (host.isNullOrBlank()) "未连接到 C3，请先在连接中心建立连接" else "正在获取 C3 画面…",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 13.sp
+              )
             }
-          },
-          modifier = Modifier.fillMaxSize()
-        )
-        if (!connected || imgW == 0) {
-          Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-          ) {
-            CircularProgressIndicator(color = Teal500, strokeWidth = 2.dp, modifier = Modifier.size(34.dp))
-            Spacer(Modifier.height(10.dp))
-            Text(
-              if (host.isNullOrBlank()) "未连接到 C3，请先在连接中心建立连接" else "正在获取 C3 画面…",
-              color = Color.White.copy(alpha = 0.8f),
-              fontSize = 13.sp
-            )
           }
         }
       }
@@ -412,10 +413,15 @@ fun VideoPreviewScreen(
   }
 }
 
+private fun toast(context: android.content.Context, msg: String) {
+  android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+}
+
 @Composable
 private fun RecordButton(
   recording: Boolean,
   seconds: Int,
+  enabled: Boolean,
   onClick: () -> Unit
 ) {
   val mm = seconds / 60
@@ -423,11 +429,12 @@ private fun RecordButton(
   val timeText = "%02d:%02d".format(mm, ss)
   Button(
     onClick = onClick,
+    enabled = enabled,
     shape = RoundedCornerShape(10.dp),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
     colors = ButtonDefaults.buttonColors(
-      containerColor = if (recording) Color.White else Red600,
-      contentColor = if (recording) Red600 else Color.White
+      containerColor = if (recording) Color.White else Color(0xFFDC2626),
+      contentColor = if (recording) Color(0xFFDC2626) else Color.White
     )
   ) {
     Icon(
@@ -450,7 +457,7 @@ private fun ModeChip(
 ) {
   Surface(
     shape = RoundedCornerShape(8.dp),
-    color = if (h264Mode) Teal500 else Color.White.copy(alpha = 0.10f),
+    color = if (h264Mode) Color(0xFF14B8A6) else Color.White.copy(alpha = 0.10f),
     onClick = onClick
   ) {
     Row(
