@@ -97,9 +97,14 @@ class OverlayDataClient(
     while (running.get()) {
       var sock: Socket? = null
       try {
+        // 注意：InetSocketAddress 必须在 apply 之外构造。
+        // 若写成 `Socket().apply { connect(InetSocketAddress(host, port), 3000) }`，
+        // apply 内部的 this 是 Socket，而 Socket 自己就有 port 属性（远端端口，
+        // 未连接时为 0）→ 会静默连到 port 0 并报 ECONNREFUSED。
+        val target = InetSocketAddress(host, port)
         sock = Socket().apply {
           tcpNoDelay = true
-          connect(InetSocketAddress(host, port), 3000)
+          connect(target, 3000)
         }
         Log.i(TAG, "connected $host:$port")
         onStatus(true)
