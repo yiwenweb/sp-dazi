@@ -381,6 +381,13 @@ class SuperVideo2Client(
         8 -> { pps = nalu; gotPps = true; diag("收到 PPS len=${nalu.size}") }
       }
       if (gotSps && gotPps && codec == null) tryConfigureDecoder()
+      // ★ 与 SuperVideoClient 同一处根因修复：IDR 前重发带内 SPS/PPS。
+      // 只给 csd-0/csd-1 时，硬解器会在新 GOP 上找不到参数集而静默丢帧
+      // （现象：输入全吃下、输出恒 0、无任何报错）。详见 SuperVideoClient.handleNalu。
+      if (type == 5 && codec != null) {
+        sps?.let { feedAndDrain(it, keyframe = false) }
+        pps?.let { feedAndDrain(it, keyframe = false) }
+      }
       codec?.let { feedAndDrain(nalu, type == 5) } ?: run {
         bump("drop_nocodec")
       }

@@ -423,13 +423,31 @@ class SuperVideoClient(
       if (gotSps && gotPps && codec == null) {
         tryConfigureDecoder()
       }
-      // SPS/PPS 既要作为 CSD 提交（configure 时已做），也要按原样喂进数据队列。
+      // ★★ 根因修复（2026-09-11 真机 A/B 实测，华为 NOH-AN00 / Android 12）：
+      //    每次 IDR 之前必须重发一遍带内 SPS/PPS。
       //
-      // 踩坑记录：早先这里直接 `if (type == 7 || type == 8) return`，即 SPS/PPS 只
-      // 通过 CSD 出现一次、数据流里再无它们。PC 端对照实验（见 feedAndDrain 注释的
-      // D1/D2/D3 组）显示：只有「CSD 有 SPS/PPS」+「数据流里也有 SPS/PPS」的组合能出帧。
-      // 原因是 C3 编码器每个 GOP 都重发 IDR，而带内 SPS/PPS 是解码器重新同步参数集的
-      // 唯一依据；只给 CSD 的话，解码器在收到新 IDR 时无参数集可用 → 静默丢弃。
+      // C3 侧的 msm_vidc（openpilot V4LEncoder）**只在开流时发一次 SPS/PPS**，
+      // 之后每个 GOP 只重发 IDR，不再携带参数集。只靠 csd-0/csd-1 是不够的：
+      // OMX.hisi.video.decoder.avc、c2.android.avc.decoder、OMX.google.h264.decoder
+      // 三家全部表现为「configure + start 成功、输入全吃下、输出恒为 0 帧、不报任何错」
+      // （DEAD-DIAG: queued=4.1MB / outputs=0 / outChanged=0），4 秒后逐个被判死。
+      //
+      // A/B 实测（同一台手机、同一份 C3 码流，用 C3 上的 TCP 回放服务喂给本 App）：
+      //   A) 原样回放 C3 码流               → 3 个解码器全部 入N/出0，面板 0 FPS
+      //   B) 只把 SPS/PPS 从 SPS 里去掉     → 同上（VUI 不是原因，已排除）
+      //   C) 每个 IDR 前插入 SPS+PPS 回放   → 硬解 入2509/出1771、31 FPS 正常出图 ✅
+      //   D) 对照 libx264 码流（每个 GOP 自带参数集）→ 同一 App 也能正常出图 ✅
+      // 结论：解码器需要「紧随 IDR 之前」的参数集来为每个 GOP 重新建立解码上下文，
+      //       CSD 只是初始化提示。C3 的码流缺这一环 → 静默 0 帧。
+      //
+      // 因此这里在喂 IDR 之前，先把缓存的 SPS/PPS（原样含 Annex-B start code）喂一遍，
+      // 让码流在解码器眼里等价于「常规每个 GOP 重发参数集」的形态。
+      // 若将来 C3 端自己也带上带内参数集，这里重复喂一次也无害（H.264 允许）。
+      if (type == 5 && codec != null) {
+        sps?.let { feedAndDrain(it, keyframe = false) }
+        pps?.let { feedAndDrain(it, keyframe = false) }
+      }
+      // SPS/PPS 既要作为 CSD 提交（configure 时已做），也要按原样喂进数据队列。
       codec?.let { feedAndDrain(nalu, type == 5) } ?: run {
         bump("drop_nocodec")
         if (naluCount <= 8 || naluCount % 200 == 0) {
